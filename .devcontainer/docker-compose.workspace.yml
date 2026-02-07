@@ -1,0 +1,29 @@
+version: '3.3'
+
+services:
+  workspace:
+    build: .
+    tty: true
+    working_dir: /home/vscode/workspace
+    volumes:
+      - ~/.ssh/:/home/vscode/.ssh/
+      - ..:/home/vscode/workspace
+      - ../../mods:/mods
+      - ../../assets:/assets
+      - "$HOME/Library/Application\ Support/minecraft/mods:$HOME/Library/Application\ Support/minecraft/mods"
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - MCP_SERVER_URL=http://mcp-gateway:8080
+  mcp-gateway:
+    image: docker/mcp-gateway
+    privileged: true
+    command:
+      - --port=8080
+      - --transport=streaming
+      - --servers=desktop-commander
+      - --memory=512Mb
+      - --config=/etc/mcp/config.yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../mods:/home/vscode/mods
+      - ../mcp-config.yaml:/etc/mcp/config.yaml

@@ -1,0 +1,22 @@
+// For format details, see https://aka.ms/devcontainer.json. 
+{
+    "name": "Python 3",
+    "dockerComposeFile": [
+        "docker-compose.workspace.yml"
+    ],
+    "service": "workspace",
+    "workspaceFolder": "/home/vscode/workspace",
+    "postCreateCommand": "bash .devcontainer/postCreateCommands.sh",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "eamodio.gitlens",
+                "github.copilot",
+                "ms-python.black-formatter",
+                "bierner.markdown-mermaid",
+                "njpwerner.autodocstring",
+                "ms-python.python"
+            ]
+        }
+    }
+}

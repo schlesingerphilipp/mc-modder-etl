@@ -1,0 +1,26 @@
+[project]
+name = "mc-modder-etl"
+version = "0.1.0"
+description = "Extract and build the knowledge data for the mc-modder-service"
+authors = [
+    {name = "Philipp Schlesinger"}
+]
+package-mode = false
+readme = "README.md"
+requires-python = ">=3.11"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [
+    { include = "app" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+gitpython = "*"
+[tool.poetry.dev-dependencies]
+pytest = "*"
