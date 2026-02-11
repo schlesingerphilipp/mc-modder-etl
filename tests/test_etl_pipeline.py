@@ -15,6 +15,7 @@ from etl_pipeline import (
     match_commits_to_prs,
     build_etl_rows,
     write_to_csv,
+    split_diff_by_file,
 )
 from models import Commit, PR, ETLRow
 
@@ -36,6 +37,109 @@ class TestParseRepoId:
         """Test parsing URL with trailing slashes."""
         url = "https://github.com/owner/repo///"
         assert parse_repo_id(url) == "owner/repo"
+
+
+class TestSplitDiffByFile:
+    """Test splitting diffs by file boundaries."""
+    
+    def test_split_single_file_diff(self):
+        """Test splitting a diff with only one file."""
+        diff = """--- a/file.txt
++++ b/file.txt
+@@ -1,5 +1,6 @@
+ line 1
+-line 2
++line 2 modified
+ line 3"""
+        result = split_diff_by_file(diff)
+        assert len(result) == 1
+        assert "--- a/file.txt" in result[0]
+        assert "+++ b/file.txt" in result[0]
+    
+    def test_split_multiple_files_diff(self):
+        """Test splitting a diff with multiple files."""
+        diff = """--- a/file1.txt
++++ b/file1.txt
+@@ -1,3 +1,3 @@
+ line 1
+-line 2
++line 2 modified
+--- a/file2.py
++++ b/file2.py
+@@ -10,5 +10,6 @@
+ def foo():
+     pass
+-    return None
++    return True"""
+        result = split_diff_by_file(diff)
+        assert len(result) == 2
+        assert "file1.txt" in result[0]
+        assert "file2.py" in result[1]
+        assert "file2.py" not in result[0]
+        assert "file1.txt" not in result[1]
+    
+    def test_split_three_files_diff(self):
+        """Test splitting a diff with three files."""
+        diff = """--- a/src/main.py
++++ b/src/main.py
+@@ -1 +1 @@
+-old
++new
+--- a/tests/test.py
++++ b/tests/test.py
+@@ -1 +1 @@
+-test old
++test new
+--- a/README.md
++++ b/README.md
+@@ -1 +1 @@
+-docs old
++docs new"""
+        result = split_diff_by_file(diff)
+        assert len(result) == 3
+        assert "main.py" in result[0]
+        assert "test.py" in result[1]
+        assert "README.md" in result[2]
+    
+    def test_split_empty_diff(self):
+        """Test splitting an empty diff."""
+        result = split_diff_by_file("")
+        assert result == []
+    
+    def test_split_none_diff(self):
+        """Test splitting a None diff."""
+        result = split_diff_by_file(None)
+        assert result == []
+    
+    def test_split_whitespace_only_diff(self):
+        """Test splitting a diff with only whitespace."""
+        result = split_diff_by_file("   \n  \n  ")
+        assert result == []
+    
+    def test_split_preserves_file_content(self):
+        """Test that splitting preserves all file content correctly."""
+        diff = """--- a/first.txt
++++ b/first.txt
+@@ -1,2 +1,3 @@
+ line 1
+-line 2
++line 2a
++line 2b
+--- a/second.txt
++++ b/second.txt
+@@ -5,3 +5,2 @@
+ context
+-removed
+ more"""
+        result = split_diff_by_file(diff)
+        assert len(result) == 2
+        # Check first file has its hunks
+        assert "@@ -1,2 +1,3 @@" in result[0]
+        assert "line 2a" in result[0]
+        assert "line 2b" in result[0]
+        # Check second file has its hunks
+        assert "@@ -5,3 +5,2 @@" in result[1]
+        assert "removed" in result[1]
 
 
 class TestExtractCommitHashes:
@@ -230,6 +334,109 @@ class TestBuildETLRows:
         assert len(rows) == 2
         assert rows[0].pr_id == 1
         assert rows[1].pr_id is None
+    
+    def test_build_rows_splits_multi_file_diff(self):
+        """Test that diffs with multiple files are split into separate rows."""
+        repo_url = "https://github.com/owner/repo"
+        multi_file_diff = """--- a/file1.txt
++++ b/file1.txt
+@@ -1,3 +1,3 @@
+ line 1
+-line 2
++line 2 modified
+--- a/file2.py
++++ b/file2.py
+@@ -10,2 +10,3 @@
+ def foo():
+     pass
++    return True"""
+        commits = [
+            Commit(
+                commit_hash="aaaa111111111111111111111111111111111111",
+                message="Multi-file commit",
+                diff=multi_file_diff,
+            )
+        ]
+        prs = [
+            PR(
+                id=1,
+                title="Multi-file PR",
+                body="Fixes aaaa111",
+                user="testuser",
+                created_at="2026-02-11T00:00:00Z",
+            )
+        ]
+        
+        rows = build_etl_rows(repo_url, commits, prs)
+        # Should create 2 rows (one per file)
+        assert len(rows) == 2
+        
+        # Both rows should have the same metadata
+        assert rows[0].repo_id == "owner/repo"
+        assert rows[0].commit_hash == "aaaa111111111111111111111111111111111111"
+        assert rows[0].commit_message == "Multi-file commit"
+        assert rows[0].pr_id == 1
+        
+        assert rows[1].repo_id == "owner/repo"
+        assert rows[1].commit_hash == "aaaa111111111111111111111111111111111111"
+        assert rows[1].commit_message == "Multi-file commit"
+        assert rows[1].pr_id == 1
+        
+        # But diffs should be different
+        assert "file1.txt" in rows[0].diff
+        assert "file2.py" in rows[1].diff
+        assert "file2.py" not in rows[0].diff
+        assert "file1.txt" not in rows[1].diff
+    
+    def test_build_rows_empty_diff_creates_one_row(self):
+        """Test that commits with empty diffs still create a row."""
+        repo_url = "https://github.com/owner/repo"
+        commits = [
+            Commit(
+                commit_hash="root0000000000000000000000000000000000000",
+                message="Root commit",
+                diff="",
+            )
+        ]
+        prs = []
+        
+        rows = build_etl_rows(repo_url, commits, prs)
+        # Should create 1 row even with empty diff
+        assert len(rows) == 1
+        assert rows[0].diff == ""
+    
+    def test_build_rows_multiple_commits_with_varying_files(self):
+        """Test multiple commits where some have single files and some have multiple."""
+        repo_url = "https://github.com/owner/repo"
+        commits = [
+            Commit(
+                commit_hash="aaaa111111111111111111111111111111111111",
+                message="Single file commit",
+                diff="--- a/file1.txt\n+++ b/file1.txt\n@@ -1 +1 @@\n-old\n+new",
+            ),
+            Commit(
+                commit_hash="bbbb222222222222222222222222222222222222",
+                message="Two file commit",
+                diff="""--- a/file2.txt
++++ b/file2.txt
+@@ -1 +1 @@
+-old2
++new2
+--- a/file3.txt
++++ b/file3.txt
+@@ -1 +1 @@
+-old3
++new3""",
+            ),
+        ]
+        prs = []
+        
+        rows = build_etl_rows(repo_url, commits, prs)
+        # First commit: 1 row, second commit: 2 rows = 3 total
+        assert len(rows) == 3
+        assert rows[0].commit_hash == "aaaa111111111111111111111111111111111111"
+        assert rows[1].commit_hash == "bbbb222222222222222222222222222222222222"
+        assert rows[2].commit_hash == "bbbb222222222222222222222222222222222222"
 
 
 class TestWriteToCSV:

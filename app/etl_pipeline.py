@@ -1,9 +1,52 @@
 import re
 import csv
 from typing import List, Dict, Any, Optional
-from models import Commit, PR, ETLRow
-from extract_git_data import extract_all_repos
-from extract_pr_data import extract_all_prs
+from app.models import Commit, PR, ETLRow
+from app.extract_git_data import extract_all_repos
+from app.extract_pr_data import extract_all_prs
+
+
+def split_diff_by_file(diff: str) -> List[str]:
+    """
+    Split a unified diff containing multiple files into individual file diffs.
+    
+    Uses unified diff format markers to identify file boundaries:
+    - "--- a/filepath" and "+++ b/filepath" mark the start of each file's diff
+    
+    Args:
+        diff: Complete unified diff string (possibly containing multiple files)
+    
+    Returns:
+        List of individual file diffs. If diff is empty, returns empty list.
+    """
+    if not diff or not diff.strip():
+        return []
+    
+    lines = diff.split('\n')
+    file_diffs = []
+    current_file_diff = []
+    
+    for i, line in enumerate(lines):
+        # Check if this is a "--- a/" line (start of a file header)
+        if line.startswith('--- a/'):
+            # If we have accumulated lines from a previous file, save them
+            if current_file_diff:
+                file_diff_str = '\n'.join(current_file_diff).rstrip()
+                if file_diff_str:
+                    file_diffs.append(file_diff_str)
+            # Start a new file with the "--- a/" line
+            current_file_diff = [line]
+        else:
+            # Add all other lines to the current file
+            current_file_diff.append(line)
+    
+    # Don't forget the last file's diff
+    if current_file_diff:
+        file_diff_str = '\n'.join(current_file_diff).rstrip()
+        if file_diff_str:
+            file_diffs.append(file_diff_str)
+    
+    return file_diffs
 
 
 def parse_repo_id(repo_url: str) -> str:
@@ -94,7 +137,10 @@ def build_etl_rows(
     prs: List[PR]
 ) -> List[ETLRow]:
     """
-    Build ETL rows combining commits and PR data.
+    Build ETL rows combining commits and PR data, splitting diffs by file.
+    
+    Each file in a commit's diff gets its own row with identical metadata
+    (repo_id, commit_hash, commit_message, PR info) but different diff content.
     
     Args:
         repo_url: Full GitHub repository URL
@@ -102,7 +148,8 @@ def build_etl_rows(
         prs: List of PR objects
     
     Returns:
-        List of ETLRow objects ready for output
+        List of ETLRow objects ready for output (may be larger than commits list
+        if commits touch multiple files)
     """
     repo_id = parse_repo_id(repo_url)
     commit_to_pr = match_commits_to_prs(commits, prs)
@@ -112,17 +159,26 @@ def build_etl_rows(
         commit_hash = commit.commit_hash
         pr = commit_to_pr.get(commit_hash)
         
-        row = ETLRow(
-            **{
-                "Repo ID": repo_id,
-                "commit hash": commit_hash,
-                "commit message": commit.message,
-                "diff": commit.diff,
-                "PR message": pr.body if pr else None,
-                "PR ID": pr.id if pr else None,
-            }
-        )
-        rows.append(row)
+        # Split the diff by file boundaries
+        file_diffs = split_diff_by_file(commit.diff)
+        
+        # If no file diffs (empty diff or root commit), create one row with empty diff
+        if not file_diffs:
+            file_diffs = [""]
+        
+        # Create one row per file diff
+        for file_diff in file_diffs:
+            row = ETLRow(
+                **{
+                    "Repo ID": repo_id,
+                    "commit hash": commit_hash,
+                    "commit message": commit.message,
+                    "diff": file_diff,
+                    "PR message": pr.body if pr else None,
+                    "PR ID": pr.id if pr else None,
+                }
+            )
+            rows.append(row)
     
     return rows
 
@@ -189,6 +245,14 @@ def write_to_csv(rows: List[ETLRow], output_file: str = "commits_prs_output.csv"
     print(f"Wrote {len(rows)} rows to {output_file}")
 
 
-if __name__ == "__main__":
+def main():
+    """Run the ETL pipeline to extract and combine commits, PRs, and diffs."""
+    print("Starting ETL pipeline...")
+    
+    # Extract and transform data
     rows = extract_and_transform()
+    print(f"Extracted and transformed {len(rows)} rows.")
+    
+    # Write to CSV
     write_to_csv(rows)
+    print("ETL pipeline completed successfully!")

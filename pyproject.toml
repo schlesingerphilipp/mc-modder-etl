@@ -19,6 +19,9 @@ packages = [
     { include = "app" }
 ]
 
+[tool.poetry.scripts]
+etl-pipeline = "app.etl_pipeline:main"
+
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 gitpython = "*"
