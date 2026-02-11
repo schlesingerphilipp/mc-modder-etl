@@ -1,0 +1,194 @@
+import re
+import csv
+from typing import List, Dict, Any, Optional
+from models import Commit, PR, ETLRow
+from extract_git_data import extract_all_repos
+from extract_pr_data import extract_all_prs
+
+
+def parse_repo_id(repo_url: str) -> str:
+    """
+    Extract repository ID from a GitHub URL.
+    
+    Args:
+        repo_url: Full GitHub URL (e.g., https://github.com/owner/repo)
+    
+    Returns:
+        Repository ID in owner/repo format
+    """
+    # Remove trailing slash and split by /
+    parts = repo_url.rstrip("/").split("/")
+    owner = parts[-2]
+    repo = parts[-1]
+    return f"{owner}/{repo}"
+
+
+def extract_commit_hashes(text: str) -> set:
+    """
+    Extract all commit hashes from text using regex.
+    Matches 7-40 character hex strings (both short and full SHAs).
+    
+    Args:
+        text: Text to search for commit hashes
+    
+    Returns:
+        Set of commit hashes found
+    """
+    if not text:
+        return set()
+    # Match 7-40 character hexadecimal strings (commit hashes)
+    pattern = r'\b[0-9a-f]{7,40}\b'
+    return set(re.findall(pattern, text, re.IGNORECASE))
+
+
+def match_commits_to_prs(
+    commits: List[Commit], 
+    prs: List[PR]
+) -> Dict[str, Optional[PR]]:
+    """
+    Match commits to PRs by searching for commit hashes in PR body and title.
+    Matches if any hash found in PR text is a prefix of the commit hash.
+    
+    Args:
+        commits: List of Commit objects
+        prs: List of PR objects
+    
+    Returns:
+        Dictionary mapping commit_hash -> PR object (or None if no match)
+    """
+    commit_to_pr: Dict[str, Optional[PR]] = {}
+    
+    # Initialize all commits with None
+    for commit in commits:
+        commit_to_pr[commit.commit_hash] = None
+    
+    # Search for commit hashes in PR text
+    for pr in prs:
+        pr_text = ""
+        if pr.title:
+            pr_text += pr.title + " "
+        if pr.body:
+            pr_text += pr.body
+        
+        # Extract commit hashes from PR text
+        hashes_in_pr = extract_commit_hashes(pr_text)
+        
+        # Match against commits
+        for commit in commits:
+            full_hash = commit.commit_hash
+            
+            # Check if any hash in PR is a prefix of this commit's hash
+            for pr_hash in hashes_in_pr:
+                if full_hash.startswith(pr_hash):
+                    # Only map if not already mapped (first match wins)
+                    if commit_to_pr[full_hash] is None:
+                        commit_to_pr[full_hash] = pr
+                    break
+    
+    return commit_to_pr
+
+
+def build_etl_rows(
+    repo_url: str,
+    commits: List[Commit],
+    prs: List[PR]
+) -> List[ETLRow]:
+    """
+    Build ETL rows combining commits and PR data.
+    
+    Args:
+        repo_url: Full GitHub repository URL
+        commits: List of Commit objects
+        prs: List of PR objects
+    
+    Returns:
+        List of ETLRow objects ready for output
+    """
+    repo_id = parse_repo_id(repo_url)
+    commit_to_pr = match_commits_to_prs(commits, prs)
+    
+    rows = []
+    for commit in commits:
+        commit_hash = commit.commit_hash
+        pr = commit_to_pr.get(commit_hash)
+        
+        row = ETLRow(
+            **{
+                "Repo ID": repo_id,
+                "commit hash": commit_hash,
+                "commit message": commit.message,
+                "diff": commit.diff,
+                "PR message": pr.body if pr else None,
+                "PR ID": pr.id if pr else None,
+            }
+        )
+        rows.append(row)
+    
+    return rows
+
+
+def extract_and_transform() -> List[ETLRow]:
+    """
+    Orchestrate full ETL: extract commits and PRs, then transform into unified table.
+    
+    Returns:
+        List of ETLRow objects ready for CSV output
+    """
+    # Extract commits by repo URL (raw dicts from extract_all_repos)
+    commits_by_repo_url_raw = extract_all_repos()
+    
+    # Extract PRs by repo ID (raw dicts from extract_all_prs)
+    prs_by_repo_id_raw = extract_all_prs()
+    
+    # Convert raw dicts to Pydantic models
+    commits_by_repo_url: Dict[str, List[Commit]] = {
+        repo_url: [Commit(**commit) for commit in commits]
+        for repo_url, commits in commits_by_repo_url_raw.items()
+    }
+    
+    prs_by_repo_id: Dict[str, List[PR]] = {
+        repo_id: [PR(**pr) for pr in prs]
+        for repo_id, prs in prs_by_repo_id_raw.items()
+    }
+    
+    all_rows = []
+    
+    # Process each repository
+    for repo_url, commits in commits_by_repo_url.items():
+        repo_id = parse_repo_id(repo_url)
+        prs = prs_by_repo_id.get(repo_id, [])
+        
+        rows = build_etl_rows(repo_url, commits, prs)
+        all_rows.extend(rows)
+    
+    return all_rows
+
+
+def write_to_csv(rows: List[ETLRow], output_file: str = "commits_prs_output.csv") -> None:
+    """
+    Write ETL rows to CSV file.
+    
+    Args:
+        rows: List of ETLRow objects to write
+        output_file: Output CSV filename
+    """
+    if not rows:
+        print("No rows to write.")
+        return
+    
+    fieldnames = ["Repo ID", "commit hash", "commit message", "diff", "PR message", "PR ID"]
+    
+    with open(output_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            # Convert ETLRow to dict using aliases
+            row_dict = row.model_dump(by_alias=True)
+            writer.writerow(row_dict)
+    
+    print(f"Wrote {len(rows)} rows to {output_file}")
+
+
+if __name__ == "__main__":
+    rows = extract_and_transform()
+    write_to_csv(rows)
