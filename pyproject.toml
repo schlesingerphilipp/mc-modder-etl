@@ -21,11 +21,16 @@ packages = [
 
 [tool.poetry.scripts]
 etl-pipeline = "app.etl_pipeline:main"
+etl-summarize-commits = "app.summarize_commits:main"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 gitpython = "*"
 requests = "*"
 pydantic = "*"
+pandas = "*"
+langchain = "*"
+langchain-google-genai = "*"
+python-dotenv = "*"
 [tool.poetry.dev-dependencies]
 pytest = "*"

@@ -31,3 +31,12 @@ class ETLRow(BaseModel):
     pr_id: Optional[int] = Field(default=None, alias="PR ID", description="GitHub PR ID (null if no PR)")
     
     model_config = {"populate_by_name": True}  # Allow both alias and field name
+
+
+class CommitSummary(BaseModel):
+    """Represents a commit with its semantic summary."""
+    commit_hash: str = Field(..., description="Full commit SHA hash")
+    original_message: str = Field(..., description="Original commit message")
+    semantic_summary: Optional[str] = Field(default=None, description="LLM-generated semantic summary of changes")
+    status: str = Field(default="pending", description="Processing status: pending, completed, or failed")
+    error_message: Optional[str] = Field(default=None, description="Error message if status is failed")
