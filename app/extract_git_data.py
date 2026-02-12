@@ -21,10 +21,11 @@ def extract_commit_data(repo_path: str) -> List[Dict[str, Any]]:
     data = []
     for commit in repo.iter_commits():
         if commit.parents:
-            diffs = commit.diff(commit.parents[0], create_patch=True)
-            diff_text = "".join(d.diff.decode("utf-8", errors="ignore") if hasattr(d, "diff") and isinstance(d.diff, bytes) else d.diff for d in diffs)
+            # Use git command directly to get unified diff with file paths
+            diff_text = repo.git.diff(f"{commit.parents[0].hexsha}...{commit.hexsha}")
         else:
-            diff_text = ""
+            # For the first commit, show the diff against empty tree
+            diff_text = repo.git.show(commit.hexsha)
         commit_info = {
             "commit_hash": commit.hexsha,
             "message": commit.message,

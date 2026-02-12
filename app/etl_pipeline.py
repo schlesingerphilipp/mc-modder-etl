@@ -10,8 +10,8 @@ def split_diff_by_file(diff: str) -> List[str]:
     """
     Split a unified diff containing multiple files into individual file diffs.
     
-    Uses unified diff format markers to identify file boundaries:
-    - "--- a/filepath" and "+++ b/filepath" mark the start of each file's diff
+    Identifies file boundaries using "diff --git" lines and drops git metadata
+    lines, keeping only the unified diff content (---, +++, hunks with file paths).
     
     Args:
         diff: Complete unified diff string (possibly containing multiple files)
@@ -26,18 +26,27 @@ def split_diff_by_file(diff: str) -> List[str]:
     file_diffs = []
     current_file_diff = []
     
-    for i, line in enumerate(lines):
-        # Check if this is a "--- a/" line (start of a file header)
-        if line.startswith('--- a/'):
+    for line in lines:
+        # Check if this is a "diff --git" line (file boundary marker)
+        if line.startswith('diff --git'):
             # If we have accumulated lines from a previous file, save them
             if current_file_diff:
                 file_diff_str = '\n'.join(current_file_diff).rstrip()
                 if file_diff_str:
                     file_diffs.append(file_diff_str)
-            # Start a new file with the "--- a/" line
-            current_file_diff = [line]
+            # Start fresh for this file (don't include the "diff --git" line)
+            current_file_diff = []
+        # Skip git metadata lines (but keep --- and +++ lines)
+        elif (line.startswith('similarity index') or
+              line.startswith('rename from') or
+              line.startswith('rename to') or
+              line.startswith('index ') or
+              line.startswith('new file mode') or
+              line.startswith('deleted file mode')):
+            # Skip metadata lines
+            continue
         else:
-            # Add all other lines to the current file
+            # Keep all other lines (---, +++, @@, hunks, context)
             current_file_diff.append(line)
     
     # Don't forget the last file's diff
@@ -256,3 +265,7 @@ def main():
     # Write to CSV
     write_to_csv(rows)
     print("ETL pipeline completed successfully!")
+
+
+if __name__ == "__main__":
+    main()

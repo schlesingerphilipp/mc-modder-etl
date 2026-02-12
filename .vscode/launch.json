@@ -2,11 +2,11 @@
     "version": "0.1.0",
     "configurations": [
         {
-            "name": "modder-mc-service",
+            "name": "etl_pipeline",
             "type": "debugpy",
             "request": "launch",
             "cwd": "${workspaceFolder}",
-            "module": "modder_mc_service.debug",
+            "module": "app.etl_pipeline",
             "args": [],
             "justMyCode": false
         }

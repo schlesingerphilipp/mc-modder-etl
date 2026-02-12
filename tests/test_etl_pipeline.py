@@ -58,12 +58,16 @@ class TestSplitDiffByFile:
     
     def test_split_multiple_files_diff(self):
         """Test splitting a diff with multiple files."""
-        diff = """--- a/file1.txt
+        diff = """diff --git a/file1.txt b/file1.txt
+index 1234567..abcdefg 100644
+--- a/file1.txt
 +++ b/file1.txt
 @@ -1,3 +1,3 @@
  line 1
 -line 2
 +line 2 modified
+diff --git a/file2.py b/file2.py
+index 7654321..bcdefgh 100644
 --- a/file2.py
 +++ b/file2.py
 @@ -10,5 +10,6 @@
@@ -80,16 +84,22 @@ class TestSplitDiffByFile:
     
     def test_split_three_files_diff(self):
         """Test splitting a diff with three files."""
-        diff = """--- a/src/main.py
+        diff = """diff --git a/src/main.py b/src/main.py
+index 1111111..2222222 100644
+--- a/src/main.py
 +++ b/src/main.py
 @@ -1 +1 @@
 -old
 +new
+diff --git a/tests/test.py b/tests/test.py
+index 3333333..4444444 100644
 --- a/tests/test.py
 +++ b/tests/test.py
 @@ -1 +1 @@
 -test old
 +test new
+diff --git a/README.md b/README.md
+index 5555555..6666666 100644
 --- a/README.md
 +++ b/README.md
 @@ -1 +1 @@
@@ -118,13 +128,17 @@ class TestSplitDiffByFile:
     
     def test_split_preserves_file_content(self):
         """Test that splitting preserves all file content correctly."""
-        diff = """--- a/first.txt
+        diff = """diff --git a/first.txt b/first.txt
+index 9999999..aaaaaaa 100644
+--- a/first.txt
 +++ b/first.txt
 @@ -1,2 +1,3 @@
  line 1
 -line 2
 +line 2a
 +line 2b
+diff --git a/second.txt b/second.txt
+index bbbbbbb..ccccccc 100644
 --- a/second.txt
 +++ b/second.txt
 @@ -5,3 +5,2 @@
@@ -140,6 +154,69 @@ class TestSplitDiffByFile:
         # Check second file has its hunks
         assert "@@ -5,3 +5,2 @@" in result[1]
         assert "removed" in result[1]
+    
+    def test_split_with_git_metadata(self):
+        """Test splitting with full git metadata (diff --git format with rename/index)."""
+        diff = """diff --git a/src/file1.java b/src/file1.java
+similarity index 53%
+rename from src/old_file.java
+rename to src/file1.java
+index a8f78f5..af4cf7a 100644
+--- a/src/old_file.java
++++ b/src/file1.java
+@@ -2,5 +2,5 @@
+ line 1
+-old content
++new content
+ line 3
+diff --git a/src/file2.java b/src/file2.java
+index 5bb25d6..9dae5b9 100644
+--- a/src/file2.java
++++ b/src/file2.java
+@@ -10,2 +10,3 @@
+ context
++inserted
+ more"""
+        result = split_diff_by_file(diff)
+        assert len(result) == 2
+        # Verify metadata is dropped
+        assert "similarity index" not in result[0]
+        assert "rename from" not in result[0]
+        assert "rename to" not in result[0]
+        assert "index " not in result[0]
+        assert "diff --git" not in result[0]
+        # Verify actual diff content is preserved with file names
+        assert "--- a/src/old_file.java" in result[0]
+        assert "+++ b/src/file1.java" in result[0]
+        assert "-old content" in result[0]
+        assert "+new content" in result[0]
+        # Check second file
+        assert "--- a/src/file2.java" in result[1]
+        assert "+++ b/src/file2.java" in result[1]
+        assert "+inserted" in result[1]
+    
+    def test_split_with_resource_files(self):
+        """Test splitting using real diff files from resources."""
+        # Read the input diff
+        with open(Path(__file__).parent / "resources" / "diff_example_input.txt", "r") as f:
+            input_diff = f.read()
+        
+        # Read the expected output files
+        with open(Path(__file__).parent / "resources" / "diff_example_output_1.txt", "r") as f:
+            expected_output_1 = f.read()
+        
+        with open(Path(__file__).parent / "resources" / "diff_example_output_2.txt", "r") as f:
+            expected_output_2 = f.read()
+        
+        # Split the diff
+        result = split_diff_by_file(input_diff)
+        
+        # Verify we got 2 files
+        assert len(result) == 2
+        
+        # Verify the content matches the expected outputs
+        assert result[0] == expected_output_1
+        assert result[1] == expected_output_2
 
 
 class TestExtractCommitHashes:
@@ -338,14 +415,21 @@ class TestBuildETLRows:
     def test_build_rows_splits_multi_file_diff(self):
         """Test that diffs with multiple files are split into separate rows."""
         repo_url = "https://github.com/owner/repo"
-        multi_file_diff = """--- a/file1.txt
+        multi_file_diff = """diff --git a/file1.txt b/file1.txt
+index 1234567..abcdefg 100644
+--- a/file1.txt
 +++ b/file1.txt
 @@ -1,3 +1,3 @@
  line 1
 -line 2
 +line 2 modified
+diff --git a/file2.py b/file2.py
+index 7654321..bcdefgh 100644
 --- a/file2.py
 +++ b/file2.py
+  line 010
+  -line 011
+  +line 011 modified
 @@ -10,2 +10,3 @@
  def foo():
      pass
@@ -387,6 +471,10 @@ class TestBuildETLRows:
         assert "file2.py" in rows[1].diff
         assert "file2.py" not in rows[0].diff
         assert "file1.txt" not in rows[1].diff
+        assert "line 1" in rows[0].diff
+        assert "line 010" in rows[1].diff
+        assert "line 1" not in rows[1].diff
+        assert "line 010" not in rows[0].diff
     
     def test_build_rows_empty_diff_creates_one_row(self):
         """Test that commits with empty diffs still create a row."""
@@ -412,16 +500,20 @@ class TestBuildETLRows:
             Commit(
                 commit_hash="aaaa111111111111111111111111111111111111",
                 message="Single file commit",
-                diff="--- a/file1.txt\n+++ b/file1.txt\n@@ -1 +1 @@\n-old\n+new",
+                diff="diff --git a/file1.txt b/file1.txt\nindex 1111111..2222222 100644\n--- a/file1.txt\n+++ b/file1.txt\n@@ -1 +1 @@\n-old\n+new",
             ),
             Commit(
                 commit_hash="bbbb222222222222222222222222222222222222",
                 message="Two file commit",
-                diff="""--- a/file2.txt
+                diff="""diff --git a/file2.txt b/file2.txt
+index 3333333..4444444 100644
+--- a/file2.txt
 +++ b/file2.txt
 @@ -1 +1 @@
 -old2
 +new2
+diff --git a/file3.txt b/file3.txt
+index 5555555..6666666 100644
 --- a/file3.txt
 +++ b/file3.txt
 @@ -1 +1 @@
