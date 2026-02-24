@@ -66,7 +66,7 @@ def main() -> int:
     parser.add_argument(
         "--checkpoint-dir",
         type=Path,
-        default="./checkpoints/summarize",
+        default=Path(".checkpoints/summarize"),
         help="Directory for checkpoint files (default: from .env or ./checkpoints/summarize)"
     )
     parser.add_argument(
@@ -74,7 +74,6 @@ def main() -> int:
         action="store_true",
         help="Enable verbose logging"
     )
-    
     args = parser.parse_args()
         
     try:
@@ -88,7 +87,7 @@ def main() -> int:
         LOGGER.info(f"Loaded {len(df)} rows from {df['commit hash'].nunique()} commits")
         
         # Load configuration
-        LOGGER.info("Loading summarizer configuration...")
+        LOGGER.info(f"Loading summarizer configuration... with checkpoint dir: {args.checkpoint_dir}")
         config = SummarizerConfig(checkpoint_dir=args.checkpoint_dir)
         LOGGER.info(f"Using Gemini model: {config.gemini_model}")
         LOGGER.info(f"Checkpoint directory: {config.checkpoint_dir}")

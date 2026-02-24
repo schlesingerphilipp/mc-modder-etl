@@ -3,7 +3,7 @@
 import os
 from dotenv import load_dotenv
 from pathlib import Path
-
+from app.utils.logging import LOGGER
 # Load environment variables from .env
 load_dotenv()
 
@@ -22,9 +22,11 @@ class SummarizerConfig:
         
         # Checkpoint configuration
         if checkpoint_dir is not None:
-            self.checkpoint_dir = checkpoint_dir
+            LOGGER.info(f"Using checkpoint directory from argument: {checkpoint_dir}")
+            self.checkpoint_dir = Path(checkpoint_dir)
         else:
-            checkpoint_dir = os.getenv("CHECKPOINT_DIR", "./checkpoints")
+            LOGGER.info("Using checkpoint directory from environment variable or default")
+            checkpoint_dir = os.getenv("CHECKPOINT_DIR", "./checkpoints/summarize")
             self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
@@ -49,4 +51,5 @@ class SummarizerConfig:
         Returns:
             Path to the checkpoint file
         """
+        LOGGER.info(f"Checkpoint directory: {self.checkpoint_dir}")
         return self.checkpoint_dir / f"checkpoint_{csv_hash}.json"

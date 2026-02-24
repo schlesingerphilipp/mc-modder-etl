@@ -9,6 +9,15 @@
             "module": "app.etl_pipeline",
             "args": [],
             "justMyCode": false
+        },
+        {
+            "name": "summarize_commits",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "module": "app.summarize.summarize_commits",
+            "args": ["commits_prs_output.csv", "commits_with_summaries.csv"],
+            "justMyCode": false
         }
     ]
 }

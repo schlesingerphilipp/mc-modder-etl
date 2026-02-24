@@ -23,7 +23,7 @@ Key Features:
 
 ### 2. [app/summarize_commits.py](app/summarize_commits.py)
 Standalone CLI entry point for commit summarization:
-- Command: `etl-summarize-commits input_csv output_csv [--checkpoint-dir DIR] [-v]`
+- Command: `summarize-commits input_csv output_csv [--checkpoint-dir DIR] [-v]`
 - Validates input CSV has required columns (commit hash, commit message, diff)
 - Supports verbose logging for debugging
 - Outputs enhanced CSV with `semantic_summary` column
@@ -60,7 +60,7 @@ Environment variable template with:
 
 ### pyproject.toml
 - Added dependencies: pandas, langchain, langchain-google-genai, python-dotenv
-- Registered CLI entry point: `etl-summarize-commits = "app.summarize_commits:main"`
+- Registered CLI entry point: `summarize-commits = "app.summarize_commits:main"`
 
 ### Build & Installation
 - Uses `make lock` to resolve and lock dependency versions
@@ -90,17 +90,17 @@ Output enhanced CSV with semantic_summary column
 
 ### Basic Usage
 ```bash
-etl-summarize-commits commits_prs_output.csv commits_with_summaries.csv
+summarize-commits commits_prs_output.csv commits_with_summaries.csv
 ```
 
 ### With Custom Checkpoint Directory
 ```bash
-etl-summarize-commits input.csv output.csv --checkpoint-dir ./my_checkpoints
+summarize-commits input.csv output.csv --checkpoint-dir ./my_checkpoints
 ```
 
 ### Verbose Logging
 ```bash
-etl-summarize-commits input.csv output.csv -v
+summarize-commits input.csv output.csv -v
 ```
 
 ### Resume from Checkpoint
