@@ -7,13 +7,13 @@ from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
 from tempfile import TemporaryDirectory
 
-from app.commit_summarizer import (
+from app.summarize.commit_summarizer import (
     CheckpointManager,
     CheckpointData,
     CommitSummarizer,
     compute_csv_hash,
 )
-from app.summarizer_config import SummarizerConfig
+from app.summarize.summarizer_config import SummarizerConfig
 
 
 class TestCheckpointManager:
@@ -103,7 +103,7 @@ class TestCommitSummarizer:
     @pytest.fixture
     def summarizer(self, config):
         """Create CommitSummarizer with mocked Gemini client."""
-        with patch("app.commit_summarizer.ChatGoogleGenerativeAI"):
+        with patch("app.summarize.commit_summarizer.ChatGoogleGenerativeAI"):
             summarizer = CommitSummarizer(config)
             summarizer.client = Mock()
             return summarizer
@@ -192,7 +192,7 @@ class TestCommitSummarizer:
         with pytest.raises(Exception, match="failed after"):
             summarizer.summarize_with_gemini("test prompt")
     
-    @patch("app.commit_summarizer.CheckpointManager")
+    @patch("app.summarize.commit_summarizer.CheckpointManager")
     def test_process_commits_no_checkpoint(self, mock_checkpoint_class, summarizer):
         """Test processing commits from scratch."""
         # Mock checkpoint manager
@@ -217,7 +217,7 @@ class TestCommitSummarizer:
         assert "semantic_summary" in result_df.columns
         assert all(result_df["semantic_summary"] == "Summary for commit")
     
-    @patch("app.commit_summarizer.CheckpointManager")
+    @patch("app.summarize.commit_summarizer.CheckpointManager")
     def test_process_commits_with_checkpoint(self, mock_checkpoint_class, summarizer):
         """Test resuming from checkpoint."""
         # Mock checkpoint with one processed commit
@@ -298,7 +298,7 @@ class TestSummarizeCommitsIntegration:
         })
         return df
     
-    @patch("app.commit_summarizer.ChatGoogleGenerativeAI")
+    @patch("app.summarize.commit_summarizer.ChatGoogleGenerativeAI")
     def test_full_workflow(self, mock_gemini_class, sample_csv):
         """Test full summarization workflow."""
         # Mock Gemini responses

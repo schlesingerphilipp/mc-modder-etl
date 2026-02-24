@@ -3,8 +3,8 @@
 Test script to demonstrate and validate the diff splitting functionality.
 """
 
-from app.etl_pipeline import split_diff_by_file, build_etl_rows
-from app.models import Commit, PR
+from app.git_data.etl_pipeline import split_diff_by_file, build_etl_rows
+from app.git_data.models import Commit, PR
 
 
 def test_split_multi_file_diff():

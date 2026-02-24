@@ -9,7 +9,7 @@ import csv
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
-from etl_pipeline import (
+from app.git_data.etl_pipeline import (
     parse_repo_id,
     extract_commit_hashes,
     match_commits_to_prs,
@@ -17,7 +17,7 @@ from etl_pipeline import (
     write_to_csv,
     split_diff_by_file,
 )
-from models import Commit, PR, ETLRow
+from app.git_data.models import Commit, PR, ETLRow
 
 
 class TestParseRepoId:

@@ -6,15 +6,18 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
-
+from pydantic import BaseModel
 import pandas as pd
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.summarizer_config import SummarizerConfig
-from app.models import CommitSummary
+from app.summarize.summarizer_config import SummarizerConfig
+from app.git_data.models import CommitSummary
 
 logger = logging.getLogger(__name__)
 
+class CommitSummaryResult(BaseModel):
+    """The summary of a commit diff"""
+    semantic_summary: str
 
 @dataclass
 class CheckpointData:
@@ -81,7 +84,7 @@ class CommitSummarizer:
             model=config.gemini_model,
             google_api_key=config.google_api_key,
             temperature=0.3,  # Lower temperature for more focused summaries
-        )
+        ).with_structured_output(CommitSummaryResult)
     
     def group_rows_by_commit(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """Group ETL rows by commit hash.
@@ -127,11 +130,11 @@ class CommitSummarizer:
             combined_diffs=combined_diffs
         )
     
-    def summarize_with_gemini(self, prompt: str) -> str:
-        """Call Gemini API to generate semantic summary.
+    def summarize_with_llm(self, prompt: str) -> str:
+        """Call LLM API to generate semantic summary.
         
         Args:
-            prompt: Prompt to send to Gemini
+            prompt: Prompt to send to LLM
         
         Returns:
             Generated summary
@@ -142,15 +145,15 @@ class CommitSummarizer:
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
-                response = self.client.invoke(prompt)
-                return response.content
+                response: CommitSummaryResult = self.client.invoke(prompt)
+                return response.semantic_summary
             except Exception as e:
                 last_error = e
                 if attempt < self.config.max_retries - 1:
-                    logger.warning(f"Gemini API call failed (attempt {attempt + 1}): {e}")
+                    logger.warning(f"LLM API call failed (attempt {attempt + 1}): {e}")
         
-        logger.error(f"Gemini API call failed after {self.config.max_retries} attempts")
-        raise Exception(f"Gemini API call failed after {self.config.max_retries} attempts") from last_error
+        logger.error(f"LLM API call failed after {self.config.max_retries} attempts")
+        raise Exception(f"LLM API call failed after {self.config.max_retries} attempts") from last_error
     
     def process_commits(
         self,
@@ -211,7 +214,7 @@ class CommitSummarizer:
                 prompt = self.create_semantic_prompt(commit_message, combined_diffs)
                 
                 # Generate summary
-                summary = self.summarize_with_gemini(prompt)
+                summary = self.summarize_with_llm(prompt)
                 
                 # Save to checkpoint
                 processed_commits[commit_hash] = summary

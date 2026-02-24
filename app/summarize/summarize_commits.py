@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from app.summarizer_config import SummarizerConfig
-from app.commit_summarizer import CommitSummarizer, compute_csv_hash
+from app.summarize.summarizer_config import SummarizerConfig
+from app.summarize.commit_summarizer import CommitSummarizer, compute_csv_hash
 
 
 def setup_logging(verbose: bool = False) -> None:

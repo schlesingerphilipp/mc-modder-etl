@@ -1,9 +1,9 @@
 import re
 import csv
 from typing import List, Dict, Any, Optional
-from app.models import Commit, PR, ETLRow
-from app.extract_git_data import extract_all_repos
-from app.extract_pr_data import extract_all_prs
+from app.git_data.models import Commit, PR, ETLRow
+from app.git_data.extract_git_data import extract_all_repos
+from app.git_data.extract_pr_data import extract_all_prs
 
 
 def split_diff_by_file(diff: str) -> List[str]:
