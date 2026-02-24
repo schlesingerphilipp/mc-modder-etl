@@ -11,35 +11,30 @@ load_dotenv()
 class SummarizerConfig:
     """Configuration for commit summarization."""
     
-    def __init__(self):
+    def __init__(self, checkpoint_dir: Path = None):
         """Initialize configuration from environment variables."""
         # Google Gemini API configuration
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
         if not self.google_api_key:
             raise ValueError("GOOGLE_API_KEY environment variable not set")
         
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-pro")
+        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.1-pro-preview")
         
         # Checkpoint configuration
-        checkpoint_dir = os.getenv("CHECKPOINT_DIR", "./checkpoints")
-        self.checkpoint_dir = Path(checkpoint_dir)
+        if checkpoint_dir is not None:
+            self.checkpoint_dir = checkpoint_dir
+        else:
+            checkpoint_dir = os.getenv("CHECKPOINT_DIR", "./checkpoints")
+            self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
         # Semantic prompt template
-        self.semantic_prompt_template = os.getenv(
-            "SEMANTIC_SUMMARY_PROMPT",
-            """Analyze the following commit and provide a concise semantic summary (2-3 sentences) focusing on:
-1. What problem or issue was solved
-2. What code patterns or logic changed
-3. The business or functional impact
-
-Commit Message: {commit_message}
-
-Unified Diff (all files changed):
-{combined_diffs}
-
-Provide only the semantic summary, no additional explanation."""
-        )
+        # read from app/summarize/PROMT.md
+        prompt_path = Path(__file__).parent / "PROMPT.md"
+        if not prompt_path.exists():
+            raise FileNotFoundError(f"Prompt template not found: {prompt_path}")
+        with open(prompt_path, "r") as f:
+            self.semantic_prompt_template = f.read()
         
         # Retry configuration
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))

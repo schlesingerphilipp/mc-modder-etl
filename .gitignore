@@ -3,3 +3,4 @@
 dist
 *.csv
 .env
+.checkpoints
