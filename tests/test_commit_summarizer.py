@@ -103,7 +103,12 @@ class TestCommitSummarizer:
     @pytest.fixture
     def summarizer(self, config):
         """Create CommitSummarizer with mocked Gemini client."""
-        with patch("app.summarize.commit_summarizer.ChatGoogleGenerativeAI"):
+        with patch("app.summarize.commit_summarizer.ChatGoogleGenerativeAI") as mock_gemini:
+            # Mock the chain: ChatGoogleGenerativeAI().with_structured_output()
+            mock_instance = Mock()
+            mock_instance.with_structured_output.return_value = Mock()
+            mock_gemini.return_value = mock_instance
+            
             summarizer = CommitSummarizer(config)
             summarizer.client = Mock()
             return summarizer
@@ -158,21 +163,21 @@ class TestCommitSummarizer:
         assert "Fix bug in parser" in prompt
         assert "diff content here" in prompt
     
-    def test_summarize_with_gemini_success(self, summarizer):
-        """Test successful Gemini API call."""
+    def test_summarize_with_llm_success(self, summarizer):
+        """Test successful LLM API call."""
         mock_response = Mock()
-        mock_response.content = "Generated summary"
+        mock_response.semantic_summary = "Generated summary"
         summarizer.client.invoke.return_value = mock_response
         
-        result = summarizer.summarize_with_gemini("test prompt")
+        result = summarizer.summarize_with_llm("test prompt")
         
         assert result == "Generated summary"
         summarizer.client.invoke.assert_called_once_with("test prompt")
     
-    def test_summarize_with_gemini_retry(self, summarizer):
-        """Test Gemini API retry on failure."""
+    def test_summarize_with_llm_retry(self, summarizer):
+        """Test LLM API retry on failure."""
         mock_response = Mock()
-        mock_response.content = "Generated summary"
+        mock_response.semantic_summary = "Generated summary"
         
         # Fail first time, succeed second time
         summarizer.client.invoke.side_effect = [
@@ -180,17 +185,17 @@ class TestCommitSummarizer:
             mock_response
         ]
         
-        result = summarizer.summarize_with_gemini("test prompt")
+        result = summarizer.summarize_with_llm("test prompt")
         
         assert result == "Generated summary"
         assert summarizer.client.invoke.call_count == 2
     
-    def test_summarize_with_gemini_max_retries(self, summarizer):
-        """Test Gemini API max retries exceeded."""
+    def test_summarize_with_llm_max_retries(self, summarizer):
+        """Test LLM API max retries exceeded."""
         summarizer.client.invoke.side_effect = Exception("API error")
         
         with pytest.raises(Exception, match="failed after"):
-            summarizer.summarize_with_gemini("test prompt")
+            summarizer.summarize_with_llm("test prompt")
     
     @patch("app.summarize.commit_summarizer.CheckpointManager")
     def test_process_commits_no_checkpoint(self, mock_checkpoint_class, summarizer):
@@ -200,9 +205,9 @@ class TestCommitSummarizer:
         mock_checkpoint_mgr.load.return_value = None
         mock_checkpoint_class.return_value = mock_checkpoint_mgr
         
-        # Mock Gemini response
+        # Mock LLM response
         mock_response = Mock()
-        mock_response.content = "Summary for commit"
+        mock_response.semantic_summary = "Summary for commit"
         summarizer.client.invoke.return_value = mock_response
         
         # Create test data
@@ -301,15 +306,17 @@ class TestSummarizeCommitsIntegration:
     @patch("app.summarize.commit_summarizer.ChatGoogleGenerativeAI")
     def test_full_workflow(self, mock_gemini_class, sample_csv):
         """Test full summarization workflow."""
-        # Mock Gemini responses
+        # Mock LLM responses
         mock_client = Mock()
         mock_response1 = Mock()
-        mock_response1.content = "Fixed critical bug in parser"
+        mock_response1.semantic_summary = "Fixed critical bug in parser"
         mock_response2 = Mock()
-        mock_response2.content = "Implemented new feature"
+        mock_response2.semantic_summary = "Implemented new feature"
         
+        mock_instance = Mock()
+        mock_instance.with_structured_output.return_value = mock_client
+        mock_gemini_class.return_value = mock_instance
         mock_client.invoke.side_effect = [mock_response1, mock_response2]
-        mock_gemini_class.return_value = mock_client
         
         with TemporaryDirectory() as tmpdir:
             input_csv = Path(tmpdir) / "input.csv"
