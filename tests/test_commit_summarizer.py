@@ -102,8 +102,8 @@ class TestCommitSummarizer:
     @pytest.fixture
     def summarizer(self, config):
         """Create CommitSummarizer with mocked Ollama client."""
-        with patch("app.summarize.commit_summarizer.OllamaLLM") as mock_llm:
-            # Mock the chain: OllamaLLM().with_structured_output()
+        with patch("app.summarize.commit_summarizer.ChatOllama") as mock_llm:
+            # Mock the chain: ChatOllama().with_structured_output()
             mock_instance = Mock()
             mock_instance.with_structured_output.return_value = Mock()
             mock_llm.return_value = mock_instance
@@ -302,7 +302,7 @@ class TestSummarizeCommitsIntegration:
         })
         return df
     
-    @patch("app.summarize.commit_summarizer.OllamaLLM")
+    @patch("app.summarize.commit_summarizer.ChatOllama")
     def test_full_workflow(self, mock_ollama_class, sample_csv):
         """Test full summarization workflow."""
         # Mock LLM responses

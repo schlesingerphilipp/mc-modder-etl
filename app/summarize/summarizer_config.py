@@ -19,7 +19,7 @@ class SummarizerConfig:
             raise ValueError("GOOGLE_API_KEY environment variable not set")
         
         self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1")
-        
+        self.ollama_base_url = os.getenv("OLLAMA_SERVER_URL", "http://ollama:11434")
         # Checkpoint configuration
         if checkpoint_dir is not None:
             LOGGER.info(f"Using checkpoint directory from argument: {checkpoint_dir}")

@@ -96,7 +96,7 @@ def main() -> int:
         LOGGER.info(f"CSV hash for checkpoint tracking: {csv_hash}")
         
         # Initialize summarizer
-        LOGGER.info("Initializing Gemini API client...")
+        LOGGER.info("Initializing LLM client...")
         summarizer = CommitSummarizer(config)
         
         # Process commits with checkpoints

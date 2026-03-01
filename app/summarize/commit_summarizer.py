@@ -9,12 +9,12 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from pydantic import BaseModel
 import pandas as pd
-from langchain_ollama.llms import OllamaLLM
+from langchain_ollama import ChatOllama
 
 from app.summarize.summarizer_config import SummarizerConfig
 from app.git_data.models import CommitSummary
 
-logger = logging.getLogger(__name__)
+from app.utils.logging import LOGGER
 
 class CommitSummaryResult(BaseModel):
     """The summary of a commit diff"""
@@ -53,7 +53,7 @@ class CheckpointManager:
                 data = json.load(f)
             return CheckpointData(**data)
         except Exception as e:
-            logger.warning(f"Failed to load checkpoint: {e}")
+            LOGGER.warning(f"Failed to load checkpoint: {e}")
             return None
     
     def save(self, checkpoint: CheckpointData) -> None:
@@ -65,9 +65,9 @@ class CheckpointManager:
         try:
             with open(self.checkpoint_path, "w") as f:
                 json.dump(asdict(checkpoint), f, indent=2)
-            logger.info(f"Checkpoint saved: {self.checkpoint_path}")
+            LOGGER.info(f"Checkpoint saved: {self.checkpoint_path}")
         except Exception as e:
-            logger.error(f"Failed to save checkpoint: {e}")
+            LOGGER.error(f"Failed to save checkpoint: {e}")
             raise
 
 
@@ -81,7 +81,8 @@ class CommitSummarizer:
             config: SummarizerConfig instance
         """
         self.config = config
-        self.client = OllamaLLM(model=config.ollama_model).with_structured_output(CommitSummaryResult)
+        self.client = ChatOllama(model=config.ollama_model, base_url=config.ollama_base_url)
+        self.client =  self.client.with_structured_output(CommitSummaryResult)
     
     def group_rows_by_commit(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """Group ETL rows by commit hash.
@@ -147,9 +148,9 @@ class CommitSummarizer:
             except Exception as e:
                 last_error = e
                 if attempt < self.config.max_retries - 1:
-                    logger.warning(f"LLM API call failed (attempt {attempt + 1}): {e}")
+                    LOGGER.warning(f"LLM API call failed (attempt {attempt + 1}): {e}")
         
-        logger.error(f"LLM API call failed after {self.config.max_retries} attempts")
+        LOGGER.error(f"LLM API call failed after {self.config.max_retries} attempts")
         raise Exception(f"LLM API call failed after {self.config.max_retries} attempts") from last_error
     
     def process_commits(
@@ -177,12 +178,13 @@ class CommitSummarizer:
             processed_commits = checkpoint.processed_commits
             failed_commits = checkpoint.failed_commits
             total_commits = checkpoint.total_commits
-            logger.info(f"Resuming from checkpoint: {len(processed_commits)} processed, "
+            LOGGER.info(f"Resuming from checkpoint: {len(processed_commits)} processed, "
                        f"{len(failed_commits)} failed")
         else:
             processed_commits = {}
             failed_commits = {}
             total_commits = df["commit hash"].nunique()
+
         
         # Group rows by commit
         commit_groups = self.group_rows_by_commit(df)
@@ -191,15 +193,15 @@ class CommitSummarizer:
         for i, (commit_hash, group) in enumerate(commit_groups.items(), 1):
             # Skip if already processed
             if commit_hash in processed_commits:
-                logger.debug(f"Skipping already processed commit: {commit_hash}")
+                LOGGER.debug(f"Skipping already processed commit: {commit_hash}")
                 continue
             
             if commit_hash in failed_commits:
-                logger.debug(f"Skipping previously failed commit: {commit_hash}")
+                LOGGER.debug(f"Skipping previously failed commit: {commit_hash}")
                 continue
             
             try:
-                logger.info(f"Processing commit {i}/{total_commits}: {commit_hash[:8]}...")
+                LOGGER.info(f"Processing commit {i}/{total_commits}: {commit_hash[:8]}...")
                 
                 # Get commit message (same for all rows in group)
                 commit_message = group.iloc[0]["commit message"]
@@ -212,6 +214,7 @@ class CommitSummarizer:
                 
                 # Generate summary
                 summary = self.summarize_with_llm(prompt)
+                LOGGER.debug(f"Generated summary {summary}")
                 
                 # Save to checkpoint
                 processed_commits[commit_hash] = summary
@@ -222,10 +225,10 @@ class CommitSummarizer:
                 )
                 checkpoint_manager.save(checkpoint_data)
                 
-                logger.info(f"✓ Summary generated for {commit_hash[:8]}")
+                LOGGER.info(f"✓ Summary generated for {commit_hash[:8]}")
                 
             except Exception as e:
-                logger.error(f"✗ Failed to summarize {commit_hash[:8]}: {e}")
+                LOGGER.error(f"✗ Failed to summarize {commit_hash[:8]}: {e}")
                 failed_commits[commit_hash] = str(e)
                 
                 # Save checkpoint before aborting
