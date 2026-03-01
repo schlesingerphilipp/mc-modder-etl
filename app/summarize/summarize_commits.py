@@ -89,7 +89,6 @@ def main() -> int:
         # Load configuration
         LOGGER.info(f"Loading summarizer configuration... with checkpoint dir: {args.checkpoint_dir}")
         config = SummarizerConfig(checkpoint_dir=args.checkpoint_dir)
-        LOGGER.info(f"Using Gemini model: {config.gemini_model}")
         LOGGER.info(f"Checkpoint directory: {config.checkpoint_dir}")
         
         # Compute CSV hash for checkpoint tracking

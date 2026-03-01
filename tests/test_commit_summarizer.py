@@ -94,23 +94,22 @@ class TestCommitSummarizer:
     def config(self):
         """Create mock SummarizerConfig."""
         config = Mock(spec=SummarizerConfig)
-        config.gemini_model = "gemini-1.5-pro"
-        config.google_api_key = "test_key"
-        config.max_retries = 2
+        config.ollama_model = "llama3.1"
+        config.max_retries = 3
         config.semantic_prompt_template = "Commit: {commit_message}\nDiffs:\n{combined_diffs}"
         return config
     
     @pytest.fixture
     def summarizer(self, config):
-        """Create CommitSummarizer with mocked Gemini client."""
-        with patch("app.summarize.commit_summarizer.ChatGoogleGenerativeAI") as mock_gemini:
-            # Mock the chain: ChatGoogleGenerativeAI().with_structured_output()
+        """Create CommitSummarizer with mocked Ollama client."""
+        with patch("app.summarize.commit_summarizer.OllamaLLM") as mock_llm:
+            # Mock the chain: OllamaLLM().with_structured_output()
             mock_instance = Mock()
             mock_instance.with_structured_output.return_value = Mock()
-            mock_gemini.return_value = mock_instance
+            mock_llm.return_value = mock_instance
             
             summarizer = CommitSummarizer(config)
-            summarizer.client = Mock()
+            summarizer.client = Mock()  
             return summarizer
     
     def test_group_rows_by_commit(self, summarizer):
@@ -303,8 +302,8 @@ class TestSummarizeCommitsIntegration:
         })
         return df
     
-    @patch("app.summarize.commit_summarizer.ChatGoogleGenerativeAI")
-    def test_full_workflow(self, mock_gemini_class, sample_csv):
+    @patch("app.summarize.commit_summarizer.OllamaLLM")
+    def test_full_workflow(self, mock_ollama_class, sample_csv):
         """Test full summarization workflow."""
         # Mock LLM responses
         mock_client = Mock()
@@ -312,28 +311,27 @@ class TestSummarizeCommitsIntegration:
         mock_response1.semantic_summary = "Fixed critical bug in parser"
         mock_response2 = Mock()
         mock_response2.semantic_summary = "Implemented new feature"
-        
+
         mock_instance = Mock()
         mock_instance.with_structured_output.return_value = mock_client
-        mock_gemini_class.return_value = mock_instance
+        mock_ollama_class.return_value = mock_instance
         mock_client.invoke.side_effect = [mock_response1, mock_response2]
-        
+
         with TemporaryDirectory() as tmpdir:
             input_csv = Path(tmpdir) / "input.csv"
             sample_csv.to_csv(input_csv, index=False)
-            
+
             config = Mock(spec=SummarizerConfig)
-            config.gemini_model = "gemini-1.5-pro"
-            config.google_api_key = "test_key"
-            config.max_retries = 1
+            config.ollama_model = "llama3.1"
+            config.max_retries = 3
             config.semantic_prompt_template = "Commit: {commit_message}\nDiffs:\n{combined_diffs}"
             config.get_checkpoint_file = Mock(
                 return_value=Path(tmpdir) / "checkpoint.json"
             )
-            
+
             summarizer = CommitSummarizer(config)
             result_df, checkpoint = summarizer.process_commits(sample_csv, "test123")
-            
+
             # Verify results
             assert "semantic_summary" in result_df.columns
             assert len(checkpoint.processed_commits) == 2
