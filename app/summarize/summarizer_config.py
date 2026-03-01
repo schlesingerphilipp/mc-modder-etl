@@ -18,7 +18,7 @@ class SummarizerConfig:
         if not self.google_api_key:
             raise ValueError("GOOGLE_API_KEY environment variable not set")
         
-        self.ollama_model = os.getenv("OLLAMA_MODEL", "gemini-3.1-pro-preview")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1")
         
         # Checkpoint configuration
         if checkpoint_dir is not None:
