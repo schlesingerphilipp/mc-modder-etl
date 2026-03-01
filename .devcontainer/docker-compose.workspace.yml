@@ -14,6 +14,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - MCP_SERVER_URL=http://mcp-gateway:8080
+      - OLLAMA_SERVER_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.1
   mcp-gateway:
     image: docker/mcp-gateway
     privileged: true
@@ -27,3 +29,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ../../mods:/home/vscode/mods
       - ../mcp-config.yaml:/etc/mcp/config.yaml
+  ollama:
+    build:
+      context: ./ollama
+      args:
+        - MODEL_NAME=llama3.1
+    ports:
+      - "11434:11434"
+    environment:
+      - MODEL_NAME=llama3.1
+    volumes:
+      - ollama:/root/.ollama
+    
+volumes:
+  ollama:

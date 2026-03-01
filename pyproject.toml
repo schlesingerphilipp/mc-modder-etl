@@ -30,7 +30,7 @@ requests = "*"
 pydantic = "*"
 pandas = "*"
 langchain = "*"
-langchain-google-genai = "*"
+langchain-ollama = "*"
 python-dotenv = "*"
 [tool.poetry.dev-dependencies]
 pytest = "*"

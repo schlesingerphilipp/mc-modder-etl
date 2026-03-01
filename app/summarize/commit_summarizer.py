@@ -3,12 +3,13 @@
 import json
 import hashlib
 import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from pydantic import BaseModel
 import pandas as pd
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama.llms import OllamaLLM
 
 from app.summarize.summarizer_config import SummarizerConfig
 from app.git_data.models import CommitSummary
@@ -80,11 +81,7 @@ class CommitSummarizer:
             config: SummarizerConfig instance
         """
         self.config = config
-        self.client = ChatGoogleGenerativeAI(
-            model=config.gemini_model,
-            google_api_key=config.google_api_key,
-            temperature=0.3,  # Lower temperature for more focused summaries
-        ).with_structured_output(CommitSummaryResult)
+        self.client = OllamaLLM(model=config.ollama_model).with_structured_output(CommitSummaryResult)
     
     def group_rows_by_commit(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """Group ETL rows by commit hash.
