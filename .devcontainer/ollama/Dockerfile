@@ -1,7 +1,6 @@
 # Base image for Ollama
 FROM ollama/ollama
 
-ARG MODEL_NAME=llama3.1
 # Set working directory
 WORKDIR /app
 
