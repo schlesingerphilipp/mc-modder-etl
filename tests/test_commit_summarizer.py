@@ -95,6 +95,7 @@ class TestCommitSummarizer:
         """Create mock SummarizerConfig."""
         config = Mock(spec=SummarizerConfig)
         config.ollama_model = "llama3.1"
+        config.ollama_base_url = "http://ollama:11434"
         config.max_retries = 3
         config.semantic_prompt_template = "Commit: {commit_message}\nDiffs:\n{combined_diffs}"
         return config
@@ -323,6 +324,7 @@ class TestSummarizeCommitsIntegration:
 
             config = Mock(spec=SummarizerConfig)
             config.ollama_model = "llama3.1"
+            config.ollama_base_url = "http://ollama:11434"
             config.max_retries = 3
             config.semantic_prompt_template = "Commit: {commit_message}\nDiffs:\n{combined_diffs}"
             config.get_checkpoint_file = Mock(

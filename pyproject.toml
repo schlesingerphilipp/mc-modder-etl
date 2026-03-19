@@ -30,6 +30,9 @@ langchain-ollama = "*"
 python-dotenv = "*"
 [tool.poetry.dev-dependencies]
 pytest = "*"
+jupyter = "*"
+
+
 
 
 [tool.poetry.scripts]
