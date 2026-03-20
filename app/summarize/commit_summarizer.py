@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from pydantic import BaseModel
 import pandas as pd
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 
 from app.summarize.summarizer_config import SummarizerConfig
 from app.git_data.models import CommitSummary
@@ -81,7 +81,12 @@ class CommitSummarizer:
             config: SummarizerConfig instance
         """
         self.config = config
-        self.client = ChatOllama(model=config.ollama_model, base_url=config.ollama_base_url)
+        self.client = ChatOpenAI(
+            model=config.lmstudio_model,
+            base_url=config.lmstudio_base_url,
+            api_key=config.lmstudio_api_key,
+            temperature=0
+        )
         self.client =  self.client.with_structured_output(CommitSummaryResult)
     
     def group_rows_by_commit(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:

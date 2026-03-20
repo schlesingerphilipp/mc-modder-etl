@@ -13,13 +13,9 @@ class SummarizerConfig:
     
     def __init__(self, checkpoint_dir: Path = None):
         """Initialize configuration from environment variables."""
-        # Google Gemini API configuration
-        self.google_api_key = os.getenv("GOOGLE_API_KEY")
-        if not self.google_api_key:
-            raise ValueError("GOOGLE_API_KEY environment variable not set")
-        
-        self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1")
-        self.ollama_base_url = os.getenv("OLLAMA_SERVER_URL", "http://ollama:11434")
+        self.lmstudio_model = os.getenv("LMSTUDIO_MODEL", "qwen3.5-9b")
+        self.lmstudio_base_url = os.getenv("LMSTUDIO_BASE_URL", "http://host.docker.internal:1234/v1")
+        self.lmstudio_api_key = os.getenv("LMSTUDIO_API_KEY", "not-needed")
         # Checkpoint configuration
         if checkpoint_dir is not None:
             LOGGER.info(f"Using checkpoint directory from argument: {checkpoint_dir}")
