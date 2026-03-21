@@ -101,7 +101,7 @@ def main() -> int:
         
         # Process commits with checkpoints
         LOGGER.info("Processing commits with checkpoint-based resumption...")
-        df_with_summaries, checkpoint = summarizer.process_commits(df, csv_hash)
+        df_with_summaries, checkpoint = summarizer.process_commits(df, csv_hash, args.output_csv)
         
         # Save output
         LOGGER.info(f"Writing output CSV: {args.output_csv}")

@@ -1,6 +1,7 @@
 """Configuration for the commit summarizer."""
 
 import os
+import hashlib
 from dotenv import load_dotenv
 from pathlib import Path
 from app.utils.logging import LOGGER
@@ -58,14 +59,20 @@ class SummarizerConfig:
         with open(synthesis_prompt_path, "r") as f:
             self.commit_synthesis_prompt_template = f.read()
     
-    def get_checkpoint_file(self, csv_hash: str) -> Path:
-        """Get the checkpoint file path for a specific CSV file.
+    def get_checkpoint_file(self, csv_hash: str, output_path: Path = None) -> Path:
+        """Get the checkpoint file path for a specific CSV file and output target.
         
         Args:
             csv_hash: Hash of the CSV file to create unique checkpoints
+            output_path: Optional output CSV path to differentiate checkpoints
         
         Returns:
             Path to the checkpoint file
         """
         LOGGER.info(f"Checkpoint directory: {self.checkpoint_dir}")
+        
+        if output_path:
+            output_hash = hashlib.md5(str(output_path).encode()).hexdigest()[:8]
+            return self.checkpoint_dir / f"checkpoint_{csv_hash}_{output_hash}.json"
+        
         return self.checkpoint_dir / f"checkpoint_{csv_hash}.json"

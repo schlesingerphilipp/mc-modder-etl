@@ -240,13 +240,15 @@ class CommitSummarizer:
     def process_commits(
         self,
         df: pd.DataFrame,
-        csv_hash: str
+        csv_hash: str,
+        output_path: Path = None
     ) -> tuple[pd.DataFrame, CheckpointData]:
         """Process commits and generate summaries with checkpoint support.
         
         Args:
             df: DataFrame from ETL output CSV
             csv_hash: Hash of CSV file for checkpoint tracking
+            output_path: Optional output CSV path to differentiate checkpoints
         
         Returns:
             Tuple of (updated DataFrame with summaries, checkpoint data)
@@ -254,7 +256,7 @@ class CommitSummarizer:
         Raises:
             Exception: If processing fails (aborts on error for checkpoint-based recovery)
         """
-        checkpoint_manager = CheckpointManager(self.config.get_checkpoint_file(csv_hash))
+        checkpoint_manager = CheckpointManager(self.config.get_checkpoint_file(csv_hash, output_path))
         checkpoint = checkpoint_manager.load()
         
         # Initialize checkpoint data
