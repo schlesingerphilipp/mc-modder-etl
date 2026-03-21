@@ -178,13 +178,14 @@ class CommitSummarizer:
             file_path = row.get("file_path", row.get("file", f"unknown_{idx}"))
             diff = row.get("diff", "")
             
-            if not diff or not diff.strip():
-                LOGGER.debug(f"Skipping empty diff for file: {file_path}")
+            diff_str = str(diff).strip() if diff is not None else ""
+            if not diff_str or diff_str.lower() in ("nan", "none"):
+                LOGGER.debug(f"Skipping empty/null diff for file: {file_path}")
                 continue
             
             try:
                 LOGGER.debug(f"Summarizing file: {file_path}")
-                summary = self.summarize_file_diff(file_path, diff)
+                summary = self.summarize_file_diff(file_path, diff_str)
                 file_summaries.append({
                     "file": file_path,
                     "summary": summary
