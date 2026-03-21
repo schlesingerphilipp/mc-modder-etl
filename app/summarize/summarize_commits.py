@@ -105,6 +105,7 @@ def main() -> int:
         
         # Save output
         LOGGER.info(f"Writing output CSV: {args.output_csv}")
+        args.output_csv.parent.mkdir(parents=True, exist_ok=True)
         df_with_summaries.to_csv(args.output_csv, index=False)
         
         # Log summary
