@@ -14,7 +14,8 @@
                 "github.copilot",
                 "bierner.markdown-mermaid",
                 "njpwerner.autodocstring",
-                "ms-python.python"
+                "ms-python.python",
+                "ms-toolsai.jupyter"
             ]
         }
     }
