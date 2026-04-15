@@ -11,10 +11,13 @@
       "models": {
         "qwen/qwen3.5-9b": {
           "name": "QWEN 3.5 (LM Studio)"
+        },
+        "lmstudio-community/gemma-4-E4B-it": {
+          "name": "Gemma 4 (LM Studio)"
         }
       }
     }
   },
-  "model": "lmstudio/openai/qwen/qwen3.5-9b",
+  "model": "lmstudio-community/gemma-4-E4B-it",
   "small_model": "lmstudio/openai/qwen/qwen3.5-9b"
 }
