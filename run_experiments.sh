@@ -5,18 +5,20 @@ set -e
 NUM_EXPERIMENTS=20
 EXPERIMENT_DIR="summaries"
 EXPERIMENT_PREFIX="experiment-run"
-CMD_FILE="summaries/experiment-01-03-26/cmd.sh"
+EXPERIMENT_NAME=$1
+SOURCE_FILE=$2
 
-if [[ ! -f "$CMD_FILE" ]]; then
-    echo "Error: Command file not found: $CMD_FILE"
-    exit 1
+BASE_COMMAND="poetry run summarize-commits $SOURCE_FILE $EXPERIMENT_DIR/$EXPERIMENT_NAME/run-"
+# check if the folder $EXPERIMENT_DIR/$EXPERIMENT_NAME exists, if not create it
+if [[ ! -d "$EXPERIMENT_DIR/$EXPERIMENT_NAME" ]]; then
+    mkdir -p "$EXPERIMENT_DIR/$EXPERIMENT_NAME"
+else
+    echo "Experiment folder $EXPERIMENT_DIR/$EXPERIMENT_NAME already exists. Resuming from last completed experiment."
 fi
-
-BASE_COMMAND=$(cat "$CMD_FILE" | head -1 | sed 's/summaries_2\.csv/'"$EXPERIMENT_PREFIX"'_%02d\/summaries.csv/g')
 
 last_completed=0
 for i in $(seq 1 $NUM_EXPERIMENTS); do
-    exp_folder="$EXPERIMENT_DIR/${EXPERIMENT_PREFIX}-$(printf '%02d' $i)"
+    exp_folder="$EXPERIMENT_DIR/$EXPERIMENT_NAME/${EXPERIMENT_PREFIX}-$(printf '%02d' $i)"
     
     if [[ -f "$exp_folder/done" ]]; then
         echo "Skipping experiment $i (already completed)"
@@ -28,7 +30,7 @@ for i in $(seq 1 $NUM_EXPERIMENTS); do
     
     mkdir -p "$exp_folder"
     
-    cmd=$(printf "$BASE_COMMAND" $i)
+    cmd=$(printf "$BASE_COMMAND$i/summaries.csv")
     echo "Executing: $cmd"
     eval "$cmd"
     
