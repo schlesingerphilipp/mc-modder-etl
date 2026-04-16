@@ -16,3 +16,15 @@ services:
       - OLLAMA_MODEL=llama3.1:8b-instruct-q4_0
       - LOG_LEVEL=DEBUG
       - DB_PATH=/var/db/
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+
+  chromadb:
+    image: chromadb/chroma:latest
+    volumes:
+      - $HOME/private/dbvolume/chroma:/chroma/chroma
+    ports:
+      - "8000:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
