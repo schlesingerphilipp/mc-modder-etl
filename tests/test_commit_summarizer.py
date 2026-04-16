@@ -94,23 +94,24 @@ class TestCommitSummarizer:
     def config(self):
         """Create mock SummarizerConfig."""
         config = Mock(spec=SummarizerConfig)
-        config.ollama_model = "llama3.1"
-        config.ollama_base_url = "http://ollama:11434"
+        config.lmstudio_model = "gpt-oss-20b"
+        config.lmstudio_base_url = "http://host.docker.internal:1234/v1"
+        config.lmstudio_api_key = "not-needed"
         config.max_retries = 3
-        config.semantic_prompt_template = "Commit: {commit_message}\nDiffs:\n{combined_diffs}"
+        config.max_file_diff_length = 8000
+        config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
+        config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
         return config
     
     @pytest.fixture
     def summarizer(self, config):
-        """Create CommitSummarizer with mocked Ollama client."""
-        with patch("app.summarize.commit_summarizer.ChatOllama") as mock_llm:
-            # Mock the chain: ChatOllama().with_structured_output()
+        """Create CommitSummarizer with mocked LLM client."""
+        with patch("app.summarize.commit_summarizer.ChatOpenAI") as mock_llm:
             mock_instance = Mock()
             mock_instance.with_structured_output.return_value = Mock()
             mock_llm.return_value = mock_instance
             
             summarizer = CommitSummarizer(config)
-            summarizer.client = Mock()  
             return summarizer
     
     def test_group_rows_by_commit(self, summarizer):
@@ -127,90 +128,75 @@ class TestCommitSummarizer:
         assert len(groups["abc123"]) == 2
         assert len(groups["def456"]) == 1
     
-    def test_combine_commit_diffs(self, summarizer):
-        """Test combining diffs from multiple files in a commit."""
-        group = pd.DataFrame({
-            "commit hash": ["abc123", "abc123"],
-            "diff": [
-                "diff --git a/file1.py\n--- a/file1.py\n+++ b/file1.py\n@@ content @@",
-                "diff --git a/file2.py\n--- a/file2.py\n+++ b/file2.py\n@@ content @@",
-            ],
-        })
-        
-        combined = summarizer.combine_commit_diffs(group)
-        
-        assert "file1.py" in combined
-        assert "file2.py" in combined
-        assert "FILE SEPARATOR" in combined
-    
-    def test_combine_commit_diffs_empty(self, summarizer):
-        """Test combining when no diffs present."""
-        group = pd.DataFrame({
-            "commit hash": ["abc123"],
-            "diff": [""],
-        })
-        
-        combined = summarizer.combine_commit_diffs(group)
-        assert combined == ""
-    
-    def test_create_semantic_prompt(self, summarizer):
-        """Test prompt creation."""
-        prompt = summarizer.create_semantic_prompt(
-            "Fix bug in parser",
-            "diff content here"
-        )
-        
-        assert "Fix bug in parser" in prompt
-        assert "diff content here" in prompt
-    
-    def test_summarize_with_llm_success(self, summarizer):
-        """Test successful LLM API call."""
+    def test_summarize_file_diff_success(self, summarizer):
+        """Test successful file diff summarization."""
         mock_response = Mock()
-        mock_response.semantic_summary = "Generated summary"
-        summarizer.client.invoke.return_value = mock_response
+        mock_response.file_summary = "Updated parser logic"
+        summarizer.file_client.invoke.return_value = mock_response
         
-        result = summarizer.summarize_with_llm("test prompt")
+        result = summarizer.summarize_file_diff("parser.py", "diff content here")
         
-        assert result == "Generated summary"
-        summarizer.client.invoke.assert_called_once_with("test prompt")
+        assert result == "Updated parser logic"
+        summarizer.file_client.invoke.assert_called_once()
     
-    def test_summarize_with_llm_retry(self, summarizer):
-        """Test LLM API retry on failure."""
+    def test_summarize_file_diff_retry(self, summarizer):
+        """Test file diff summarization retry on failure."""
         mock_response = Mock()
-        mock_response.semantic_summary = "Generated summary"
+        mock_response.file_summary = "Updated parser logic"
         
-        # Fail first time, succeed second time
-        summarizer.client.invoke.side_effect = [
+        summarizer.file_client.invoke.side_effect = [
             Exception("API error"),
             mock_response
         ]
         
-        result = summarizer.summarize_with_llm("test prompt")
+        result = summarizer.summarize_file_diff("parser.py", "diff content")
         
-        assert result == "Generated summary"
-        assert summarizer.client.invoke.call_count == 2
+        assert result == "Updated parser logic"
+        assert summarizer.file_client.invoke.call_count == 2
     
-    def test_summarize_with_llm_max_retries(self, summarizer):
-        """Test LLM API max retries exceeded."""
-        summarizer.client.invoke.side_effect = Exception("API error")
+    def test_summarize_file_diff_max_retries(self, summarizer):
+        """Test file diff summarization max retries exceeded."""
+        summarizer.file_client.invoke.side_effect = Exception("API error")
         
         with pytest.raises(Exception, match="failed after"):
-            summarizer.summarize_with_llm("test prompt")
+            summarizer.summarize_file_diff("parser.py", "diff content")
+    
+    def test_synthesize_commit_summary_success(self, summarizer):
+        """Test successful commit synthesis."""
+        mock_response = Mock()
+        mock_response.semantic_summary = "Fixed critical parser bug"
+        summarizer.commit_client.invoke.return_value = mock_response
+        
+        file_summaries = [
+            {"file": "parser.py", "summary": "Fixed parsing logic"},
+            {"file": "test_parser.py", "summary": "Added test"},
+        ]
+        result = summarizer.synthesize_commit_summary("Fix parser bug", file_summaries)
+        
+        assert result == "Fixed critical parser bug"
+        summarizer.commit_client.invoke.assert_called_once()
+    
+    def test_synthesize_commit_summary_empty(self, summarizer):
+        """Test synthesis with no file summaries."""
+        result = summarizer.synthesize_commit_summary("Empty commit", [])
+        assert result == "No file changes to summarize."
     
     @patch("app.summarize.commit_summarizer.CheckpointManager")
     def test_process_commits_no_checkpoint(self, mock_checkpoint_class, summarizer):
         """Test processing commits from scratch."""
-        # Mock checkpoint manager
         mock_checkpoint_mgr = Mock()
         mock_checkpoint_mgr.load.return_value = None
         mock_checkpoint_class.return_value = mock_checkpoint_mgr
         
-        # Mock LLM response
-        mock_response = Mock()
-        mock_response.semantic_summary = "Summary for commit"
-        summarizer.client.invoke.return_value = mock_response
+        # Mock file-level and commit-level LLM responses
+        mock_file_response = Mock()
+        mock_file_response.file_summary = "File change summary"
+        summarizer.file_client.invoke.return_value = mock_file_response
         
-        # Create test data
+        mock_commit_response = Mock()
+        mock_commit_response.semantic_summary = "Summary for commit"
+        summarizer.commit_client.invoke.return_value = mock_commit_response
+        
         df = pd.DataFrame({
             "commit hash": ["abc123", "abc123"],
             "commit message": ["Fix bug", "Fix bug"],
@@ -225,7 +211,6 @@ class TestCommitSummarizer:
     @patch("app.summarize.commit_summarizer.CheckpointManager")
     def test_process_commits_with_checkpoint(self, mock_checkpoint_class, summarizer):
         """Test resuming from checkpoint."""
-        # Mock checkpoint with one processed commit
         checkpoint_data = CheckpointData(
             processed_commits={"abc123": "Previous summary"},
             failed_commits={},
@@ -235,7 +220,15 @@ class TestCommitSummarizer:
         mock_checkpoint_mgr.load.return_value = checkpoint_data
         mock_checkpoint_class.return_value = mock_checkpoint_mgr
         
-        # Create test data with two commits
+        # Mock LLM responses for the unprocessed commit
+        mock_file_response = Mock()
+        mock_file_response.file_summary = "New file summary"
+        summarizer.file_client.invoke.return_value = mock_file_response
+        
+        mock_commit_response = Mock()
+        mock_commit_response.semantic_summary = "New commit summary"
+        summarizer.commit_client.invoke.return_value = mock_commit_response
+        
         df = pd.DataFrame({
             "commit hash": ["abc123", "abc123", "def456"],
             "commit message": ["Fix bug", "Fix bug", "Add feature"],
@@ -244,9 +237,9 @@ class TestCommitSummarizer:
         
         result_df, checkpoint = summarizer.process_commits(df, "testhash123")
         
-        # abc123 should have previous summary, def456 should fail with error
-        # (since we're not mocking new Gemini responses)
-        assert len(checkpoint.processed_commits) >= 1
+        assert len(checkpoint.processed_commits) == 2
+        assert checkpoint.processed_commits["abc123"] == "Previous summary"
+        assert checkpoint.processed_commits["def456"] == "New commit summary"
 
 
 class TestComputeFileHash:
@@ -303,27 +296,39 @@ class TestSummarizeCommitsIntegration:
         })
         return df
     
-    @patch("app.summarize.commit_summarizer.ChatOllama")
-    def test_full_workflow(self, mock_ollama_class, sample_df):
+    @patch("app.summarize.commit_summarizer.ChatOpenAI")
+    def test_full_workflow(self, mock_openai_class, sample_df):
         """Test full summarization workflow."""
-        # Mock LLM responses
-        mock_client = Mock()
-        mock_response1 = Mock()
-        mock_response1.semantic_summary = "Fixed critical bug in parser"
-        mock_response2 = Mock()
-        mock_response2.semantic_summary = "Implemented new feature"
+        # Mock LLM clients
+        mock_file_client = Mock()
+        mock_commit_client = Mock()
+        
+        # File-level summaries (2 files for abc123, 1 file for def456)
+        mock_file_response = Mock()
+        mock_file_response.file_summary = "File change description"
+        mock_file_client.invoke.return_value = mock_file_response
+        
+        # Commit-level synthesis
+        mock_commit_response1 = Mock()
+        mock_commit_response1.semantic_summary = "Fixed critical bug in parser"
+        mock_commit_response2 = Mock()
+        mock_commit_response2.semantic_summary = "Implemented new feature"
+        mock_commit_client.invoke.side_effect = [mock_commit_response1, mock_commit_response2]
 
         mock_instance = Mock()
-        mock_instance.with_structured_output.return_value = mock_client
-        mock_ollama_class.return_value = mock_instance
-        mock_client.invoke.side_effect = [mock_response1, mock_response2]
+        # with_structured_output is called twice: once for commit_client, once for file_client
+        mock_instance.with_structured_output.side_effect = [mock_commit_client, mock_file_client]
+        mock_openai_class.return_value = mock_instance
 
         with TemporaryDirectory() as tmpdir:
             config = Mock(spec=SummarizerConfig)
-            config.ollama_model = "llama3.1"
-            config.ollama_base_url = "http://ollama:11434"
+            config.lmstudio_model = "gpt-oss-20b"
+            config.lmstudio_base_url = "http://host.docker.internal:1234/v1"
+            config.lmstudio_api_key = "not-needed"
             config.max_retries = 3
-            config.semantic_prompt_template = "Commit: {commit_message}\nDiffs:\n{combined_diffs}"
+            config.max_file_diff_length = 8000
+            config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
+            config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
             config.get_checkpoint_file = Mock(
                 return_value=Path(tmpdir) / "checkpoint.json"
             )
