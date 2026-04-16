@@ -7,6 +7,7 @@ ETL pipeline that extracts git diffs and commit/PR messages from Minecraft repos
 Use `make` targets — do not call Poetry or pytest directly:
 
 - `make install` — install all dependencies (Poetry, in-project `.venv`)
+- `make lock` — update `poetry.lock` after changing `pyproject.toml`
 - `make test` — run pytest with verbose output
 - `make lint` — pylint on `llm-explore` and `tests/`
 - `make format` — apply Black formatting
