@@ -1,9 +1,13 @@
+import os
 import re
 import csv
 from typing import List, Dict, Any, Optional
 from app.git_data.models import Commit, PR, ETLRow
 from app.git_data.extract_git_data import extract_all_repos
 from app.git_data.extract_pr_data import extract_all_prs
+
+# Output destination using DB_PATH environment variable
+OUTPUT_DIR = f"{os.environ.get('DB_PATH', '/var/db')}/git_data"
 
 
 def split_diff_by_file(diff: str) -> List[str]:
@@ -229,25 +233,27 @@ def extract_and_transform() -> List[ETLRow]:
     return all_rows
 
 
-def write_to_csv(rows: List[ETLRow], output_file: str = "commits_prs_output.csv") -> None:
+def write_to_csv(rows: List[ETLRow]) -> None:
     """
     Write ETL rows to CSV file.
     
     Args:
         rows: List of ETLRow objects to write
-        output_file: Output CSV filename
     """
     if not rows:
         print("No rows to write.")
         return
     
+    # Ensure output directory exists
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
     fieldnames = ["Repo ID", "commit hash", "commit message", "diff", "PR message", "PR ID"]
     
+    output_file = os.path.join(OUTPUT_DIR, "commits_prs_output.csv")
     with open(output_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
-            # Convert ETLRow to dict using aliases
             row_dict = row.model_dump(by_alias=True)
             writer.writerow(row_dict)
     

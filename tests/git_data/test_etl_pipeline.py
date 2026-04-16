@@ -560,10 +560,11 @@ class TestWriteToCSV:
         ]
         
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_file = os.path.join(tmpdir, "test_output.csv")
-            write_to_csv(rows, output_file)
+            with patch("app.git_data.etl_pipeline.OUTPUT_DIR", tmpdir):
+                write_to_csv(rows)
             
             # Verify file exists and has correct content
+            output_file = os.path.join(tmpdir, "commits_prs_output.csv")
             assert os.path.exists(output_file)
             
             with open(output_file, "r", encoding="utf-8") as f:
@@ -578,10 +579,11 @@ class TestWriteToCSV:
     def test_write_csv_empty_rows(self):
         """Test writing empty rows to CSV."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_file = os.path.join(tmpdir, "empty_output.csv")
-            write_to_csv([], output_file)
+            with patch("app.git_data.etl_pipeline.OUTPUT_DIR", tmpdir):
+                write_to_csv([])
             
             # File should not be created for empty rows
+            output_file = os.path.join(tmpdir, "commits_prs_output.csv")
             assert not os.path.exists(output_file)
 
 
