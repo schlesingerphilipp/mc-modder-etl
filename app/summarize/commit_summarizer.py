@@ -348,16 +348,26 @@ class CommitSummarizer:
 
 
 def compute_file_hash(file_path: Path) -> str:
-    """Compute hash of a file for checkpoint tracking.
+    """Compute hash of a file or directory for checkpoint tracking.
+    
+    For directories (e.g. partitioned parquet datasets), hashes all files
+    in sorted order to produce a deterministic result.
     
     Args:
-        file_path: Path to file
+        file_path: Path to file or directory
     
     Returns:
         First 16 characters of SHA256 hash
     """
     sha256 = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            sha256.update(chunk)
+    if file_path.is_dir():
+        for child in sorted(file_path.rglob("*")):
+            if child.is_file():
+                with open(child, "rb") as f:
+                    for chunk in iter(lambda: f.read(4096), b""):
+                        sha256.update(chunk)
+    else:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                sha256.update(chunk)
     return sha256.hexdigest()[:16]
