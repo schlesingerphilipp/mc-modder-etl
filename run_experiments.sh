@@ -30,7 +30,7 @@ for i in $(seq 1 $NUM_EXPERIMENTS); do
     
     mkdir -p "$exp_folder"
     
-    cmd=$(printf "$BASE_COMMAND$i/summaries.csv")
+    cmd=$(printf "$BASE_COMMAND$i/summaries.parquet")
     echo "Executing: $cmd"
     eval "$cmd"
     

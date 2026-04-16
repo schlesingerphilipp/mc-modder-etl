@@ -347,14 +347,14 @@ class CommitSummarizer:
         return df, final_checkpoint
 
 
-def compute_csv_hash(file_path: Path) -> str:
-    """Compute hash of CSV file for checkpoint tracking.
+def compute_file_hash(file_path: Path) -> str:
+    """Compute hash of a file for checkpoint tracking.
     
     Args:
-        file_path: Path to CSV file
+        file_path: Path to file
     
     Returns:
-        SHA256 hash of file
+        First 16 characters of SHA256 hash
     """
     sha256 = hashlib.sha256()
     with open(file_path, "rb") as f:

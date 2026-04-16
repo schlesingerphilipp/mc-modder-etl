@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import tempfile
-import csv
+import pandas as pd
 
 # Add app directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
@@ -14,7 +14,7 @@ from app.git_data.etl_pipeline import (
     extract_commit_hashes,
     match_commits_to_prs,
     build_etl_rows,
-    write_to_csv,
+    write_to_parquet,
     split_diff_by_file,
 )
 from app.git_data.models import Commit, PR, ETLRow
@@ -531,11 +531,11 @@ index 5555555..6666666 100644
         assert rows[2].commit_hash == "bbbb222222222222222222222222222222222222"
 
 
-class TestWriteToCSV:
-    """Test CSV output."""
+class TestWriteToParquet:
+    """Test Parquet output."""
     
-    def test_write_csv_with_rows(self):
-        """Test writing rows to CSV."""
+    def test_write_parquet_with_rows(self):
+        """Test writing rows to Parquet."""
         rows = [
             ETLRow(
                 **{
@@ -561,30 +561,68 @@ class TestWriteToCSV:
         
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("app.git_data.etl_pipeline.OUTPUT_DIR", tmpdir):
-                write_to_csv(rows)
+                write_to_parquet(rows)
             
-            # Verify file exists and has correct content
-            output_file = os.path.join(tmpdir, "commits_prs_output.csv")
-            assert os.path.exists(output_file)
+            # Read back the partitioned parquet
+            df = pd.read_parquet(tmpdir)
             
-            with open(output_file, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                written_rows = list(reader)
+            assert len(df) == 2
+            assert "abc123" in df["commit hash"].values
+            assert "def456" in df["commit hash"].values
+            assert "Repo ID" in df.columns
             
-            assert len(written_rows) == 2
-            assert written_rows[0]["commit hash"] == "abc123"
-            assert written_rows[0]["PR ID"] == "1"
-            assert written_rows[1]["PR message"] == ""  # None becomes empty string in CSV
+            row0 = df[df["commit hash"] == "abc123"].iloc[0]
+            assert row0["PR ID"] == 1
+            
+            row1 = df[df["commit hash"] == "def456"].iloc[0]
+            assert pd.isna(row1["PR message"])
     
-    def test_write_csv_empty_rows(self):
-        """Test writing empty rows to CSV."""
+    def test_write_parquet_empty_rows(self):
+        """Test writing empty rows to Parquet."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("app.git_data.etl_pipeline.OUTPUT_DIR", tmpdir):
-                write_to_csv([])
+                write_to_parquet([])
             
-            # File should not be created for empty rows
-            output_file = os.path.join(tmpdir, "commits_prs_output.csv")
-            assert not os.path.exists(output_file)
+            # No parquet files should be created for empty rows
+            parquet_files = list(Path(tmpdir).rglob("*.parquet"))
+            assert len(parquet_files) == 0
+    
+    def test_write_parquet_partitioned_by_repo(self):
+        """Test that output is partitioned by Repo ID."""
+        rows = [
+            ETLRow(
+                **{
+                    "Repo ID": "owner/repo-a",
+                    "commit hash": "aaa111",
+                    "commit message": "Commit A",
+                    "diff": "diff a",
+                    "PR message": None,
+                    "PR ID": None,
+                }
+            ),
+            ETLRow(
+                **{
+                    "Repo ID": "owner/repo-b",
+                    "commit hash": "bbb222",
+                    "commit message": "Commit B",
+                    "diff": "diff b",
+                    "PR message": None,
+                    "PR ID": None,
+                }
+            ),
+        ]
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("app.git_data.etl_pipeline.OUTPUT_DIR", tmpdir):
+                write_to_parquet(rows)
+            
+            # Should have partition subdirectories
+            subdirs = [d for d in Path(tmpdir).iterdir() if d.is_dir()]
+            assert len(subdirs) == 2
+            
+            # Read back and verify both repos present
+            df = pd.read_parquet(tmpdir)
+            assert set(df["Repo ID"]) == {"owner/repo-a", "owner/repo-b"}
 
 
 if __name__ == "__main__":

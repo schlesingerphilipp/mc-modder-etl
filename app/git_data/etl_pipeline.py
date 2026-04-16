@@ -1,7 +1,7 @@
 import os
 import re
-import csv
 from typing import List, Dict, Any, Optional
+import pandas as pd
 from app.git_data.models import Commit, PR, ETLRow
 from app.git_data.extract_git_data import extract_all_repos
 from app.git_data.extract_pr_data import extract_all_prs
@@ -233,9 +233,9 @@ def extract_and_transform() -> List[ETLRow]:
     return all_rows
 
 
-def write_to_csv(rows: List[ETLRow]) -> None:
+def write_to_parquet(rows: List[ETLRow]) -> None:
     """
-    Write ETL rows to CSV file.
+    Write ETL rows to Parquet, partitioned by Repo ID.
     
     Args:
         rows: List of ETLRow objects to write
@@ -244,20 +244,10 @@ def write_to_csv(rows: List[ETLRow]) -> None:
         print("No rows to write.")
         return
     
-    # Ensure output directory exists
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    df = pd.DataFrame([row.model_dump(by_alias=True) for row in rows])
+    df.to_parquet(OUTPUT_DIR, engine="pyarrow", partition_cols=["Repo ID"], index=False)
     
-    fieldnames = ["Repo ID", "commit hash", "commit message", "diff", "PR message", "PR ID"]
-    
-    output_file = os.path.join(OUTPUT_DIR, "commits_prs_output.csv")
-    with open(output_file, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            row_dict = row.model_dump(by_alias=True)
-            writer.writerow(row_dict)
-    
-    print(f"Wrote {len(rows)} rows to {output_file}")
+    print(f"Wrote {len(rows)} rows to {OUTPUT_DIR}")
 
 
 def main():
@@ -268,8 +258,8 @@ def main():
     rows = extract_and_transform()
     print(f"Extracted and transformed {len(rows)} rows.")
     
-    # Write to CSV
-    write_to_csv(rows)
+    # Write to Parquet
+    write_to_parquet(rows)
     print("ETL pipeline completed successfully!")
 
 

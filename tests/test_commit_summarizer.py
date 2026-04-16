@@ -11,7 +11,7 @@ from app.summarize.commit_summarizer import (
     CheckpointManager,
     CheckpointData,
     CommitSummarizer,
-    compute_csv_hash,
+    compute_file_hash,
 )
 from app.summarize.summarizer_config import SummarizerConfig
 
@@ -249,17 +249,17 @@ class TestCommitSummarizer:
         assert len(checkpoint.processed_commits) >= 1
 
 
-class TestComputeCSVHash:
-    """Tests for compute_csv_hash function."""
+class TestComputeFileHash:
+    """Tests for compute_file_hash function."""
     
-    def test_compute_csv_hash(self):
-        """Test computing CSV hash."""
+    def test_compute_file_hash(self):
+        """Test computing file hash."""
         with TemporaryDirectory() as tmpdir:
-            csv_path = Path(tmpdir) / "test.csv"
-            csv_path.write_text("a,b,c\n1,2,3\n")
+            file_path = Path(tmpdir) / "test.csv"
+            file_path.write_text("a,b,c\n1,2,3\n")
             
-            hash1 = compute_csv_hash(csv_path)
-            hash2 = compute_csv_hash(csv_path)
+            hash1 = compute_file_hash(file_path)
+            hash2 = compute_file_hash(file_path)
             
             # Hash should be consistent
             assert hash1 == hash2
@@ -267,17 +267,17 @@ class TestComputeCSVHash:
             # Hash should be reasonable length (16 chars from SHA256)
             assert len(hash1) == 16
     
-    def test_compute_csv_hash_different_files(self):
+    def test_compute_file_hash_different_files(self):
         """Test that different files produce different hashes."""
         with TemporaryDirectory() as tmpdir:
-            csv1 = Path(tmpdir) / "test1.csv"
-            csv2 = Path(tmpdir) / "test2.csv"
+            file1 = Path(tmpdir) / "test1.dat"
+            file2 = Path(tmpdir) / "test2.dat"
             
-            csv1.write_text("a,b,c\n1,2,3\n")
-            csv2.write_text("d,e,f\n4,5,6\n")
+            file1.write_text("a,b,c\n1,2,3\n")
+            file2.write_text("d,e,f\n4,5,6\n")
             
-            hash1 = compute_csv_hash(csv1)
-            hash2 = compute_csv_hash(csv2)
+            hash1 = compute_file_hash(file1)
+            hash2 = compute_file_hash(file2)
             
             assert hash1 != hash2
 
@@ -286,8 +286,8 @@ class TestSummarizeCommitsIntegration:
     """Integration tests for summarization workflow."""
     
     @pytest.fixture
-    def sample_csv(self):
-        """Create sample ETL CSV for testing."""
+    def sample_df(self):
+        """Create sample ETL DataFrame for testing."""
         df = pd.DataFrame({
             "commit hash": ["abc123", "abc123", "def456"],
             "commit message": [
@@ -304,7 +304,7 @@ class TestSummarizeCommitsIntegration:
         return df
     
     @patch("app.summarize.commit_summarizer.ChatOllama")
-    def test_full_workflow(self, mock_ollama_class, sample_csv):
+    def test_full_workflow(self, mock_ollama_class, sample_df):
         """Test full summarization workflow."""
         # Mock LLM responses
         mock_client = Mock()
@@ -319,9 +319,6 @@ class TestSummarizeCommitsIntegration:
         mock_client.invoke.side_effect = [mock_response1, mock_response2]
 
         with TemporaryDirectory() as tmpdir:
-            input_csv = Path(tmpdir) / "input.csv"
-            sample_csv.to_csv(input_csv, index=False)
-
             config = Mock(spec=SummarizerConfig)
             config.ollama_model = "llama3.1"
             config.ollama_base_url = "http://ollama:11434"
@@ -332,7 +329,7 @@ class TestSummarizeCommitsIntegration:
             )
 
             summarizer = CommitSummarizer(config)
-            result_df, checkpoint = summarizer.process_commits(sample_csv, "test123")
+            result_df, checkpoint = summarizer.process_commits(sample_df, "test123")
 
             # Verify results
             assert "semantic_summary" in result_df.columns
