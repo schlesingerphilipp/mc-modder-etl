@@ -7,7 +7,7 @@ from app.git_data.extract_git_data import extract_all_repos
 from app.git_data.extract_pr_data import extract_all_prs
 
 # Output destination using DB_PATH environment variable
-OUTPUT_DIR = f"{os.environ.get('DB_PATH', '/var/db')}/git_data"
+OUTPUT_DIR = f"{os.environ.get('DB_PATH', '/var/db').rstrip('/')}/git_data"
 
 
 def split_diff_by_file(diff: str) -> List[str]:
@@ -233,6 +233,13 @@ def extract_and_transform() -> List[ETLRow]:
     return all_rows
 
 
+def _sanitize_utf8(value):
+    """Replace invalid surrogate characters that pyarrow rejects."""
+    if isinstance(value, str):
+        return value.encode("utf-8", errors="replace").decode("utf-8")
+    return value
+
+
 def write_to_parquet(rows: List[ETLRow]) -> None:
     """
     Write ETL rows to Parquet, partitioned by Repo ID.
@@ -244,7 +251,12 @@ def write_to_parquet(rows: List[ETLRow]) -> None:
         print("No rows to write.")
         return
     
-    df = pd.DataFrame([row.model_dump(by_alias=True) for row in rows])
+    # Sanitize strings before DataFrame construction to avoid pyarrow surrogate errors
+    records = []
+    for row in rows:
+        d = row.model_dump(by_alias=True)
+        records.append({k: _sanitize_utf8(v) for k, v in d.items()})
+    df = pd.DataFrame(records)
     df.to_parquet(OUTPUT_DIR, engine="pyarrow", partition_cols=["Repo ID"], index=False)
     
     print(f"Wrote {len(rows)} rows to {OUTPUT_DIR}")

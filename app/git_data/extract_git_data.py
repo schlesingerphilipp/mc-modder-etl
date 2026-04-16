@@ -36,10 +36,10 @@ def extract_commit_data(repo_path: str) -> List[Dict[str, Any]]:
 
 def extract_all_repos() -> Dict[str, List[Dict[str, Any]]]:
     results = {}
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for repo_url in REPOS:
-            repo_path = clone_repo(repo_url, tmpdir)
-            results[repo_url] = extract_commit_data(repo_path)
+    tmpdir = "/tmp/repos"
+    for repo_url in REPOS:
+        repo_path = clone_repo(repo_url, tmpdir)
+        results[repo_url] = extract_commit_data(repo_path)
     return results
 
 if __name__ == "__main__":

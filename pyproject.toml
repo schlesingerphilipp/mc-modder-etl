@@ -43,7 +43,7 @@ jupyter = "*"
 
 
 [tool.poetry.scripts]
-etl-pipeline = "app.etl_pipeline:main"
+etl-pipeline = "app.git_data.etl_pipeline:main"
 summarize-commits = "app.summarize.summarize_commits:main"
 run-notebook = "app.notebooks.run_notebook:main"
 load-summaries = "app.vectordb.load_summaries:main"
