@@ -9,4 +9,5 @@ Commit Message: {commit_message}
 File Summaries:
 {file_summaries}
 
-Provide only the semantic summary, no additional explanation.
+Respond with ONLY a JSON object in this exact format (no other text):
+{{"semantic_summary": "your summary here"}}

@@ -93,7 +93,6 @@ class CommitSummarizer:
             api_key=config.lmstudio_api_key,
             temperature=0
         )
-        self.commit_client = self.commit_client.with_structured_output(CommitSummaryResult)
         
         self.file_client = ChatOpenAI(
             model=config.lmstudio_model,
@@ -101,7 +100,6 @@ class CommitSummarizer:
             api_key=config.lmstudio_api_key,
             temperature=0
         )
-        self.file_client = self.file_client.with_structured_output(FileSummaryResult)
     
     def group_rows_by_commit(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """Group ETL rows by commit hash.
@@ -152,8 +150,13 @@ class CommitSummarizer:
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
-                response: FileSummaryResult = self.file_client.invoke(prompt)
-                return response.file_summary
+                response = self.file_client.invoke(prompt)
+                content = response.content.strip()
+                LOGGER.debug(f"File LLM response: {content[:200]}")
+                if not content:
+                    raise ValueError("LLM returned empty content")
+                parsed = json.loads(content)
+                return parsed["file_summary"]
             except Exception as e:
                 last_error = e
                 if attempt < self.config.max_retries - 1:
@@ -227,8 +230,13 @@ class CommitSummarizer:
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
-                response: CommitSummaryResult = self.commit_client.invoke(prompt)
-                return response.semantic_summary
+                response = self.commit_client.invoke(prompt)
+                content = response.content.strip()
+                LOGGER.debug(f"Commit LLM response: {content[:200]}")
+                if not content:
+                    raise ValueError("LLM returned empty content")
+                parsed = json.loads(content)
+                return parsed["semantic_summary"]
             except Exception as e:
                 last_error = e
                 if attempt < self.config.max_retries - 1:
@@ -285,7 +293,6 @@ class CommitSummarizer:
             if commit_hash in failed_commits:
                 LOGGER.info(f"Retrying previously failed commit: {commit_hash[:8]}")
                 del failed_commits[commit_hash]
-                continue
             
             try:
                 LOGGER.info(f"Processing commit {i}/{total_commits}: {commit_hash[:8]}...")

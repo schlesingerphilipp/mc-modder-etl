@@ -6,4 +6,5 @@ File: {file_path}
 Diff:
 {diff}
 
-Provide only the file change summary, no additional explanation.
+Respond with ONLY a JSON object in this exact format (no other text):
+{{"file_summary": "your summary here"}}

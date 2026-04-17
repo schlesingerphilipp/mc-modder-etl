@@ -8,6 +8,7 @@ REPOS = [
     "https://github.com/TartaricAcid/TLMAdditionExample",
     "https://github.com/TartaricAcid/TouhouLittleMaid",
 ]
+OUTPUT_DIR = f"{os.environ.get('DB_PATH', '/var/db').rstrip('/')}/git_raw"
 
 def clone_repo(repo_url: str, clone_dir: str) -> str:
     repo_name = repo_url.rstrip("/").split("/")[-1]
@@ -36,9 +37,8 @@ def extract_commit_data(repo_path: str) -> List[Dict[str, Any]]:
 
 def extract_all_repos() -> Dict[str, List[Dict[str, Any]]]:
     results = {}
-    tmpdir = "/tmp/repos"
     for repo_url in REPOS:
-        repo_path = clone_repo(repo_url, tmpdir)
+        repo_path = clone_repo(repo_url, OUTPUT_DIR)
         results[repo_url] = extract_commit_data(repo_path)
     return results
 
