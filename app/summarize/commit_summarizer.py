@@ -178,13 +178,22 @@ class CommitSummarizer:
         file_summaries = []
         
         for idx, row in group.iterrows():
-            file_path = row.get("file_path", row.get("file", f"unknown_{idx}"))
             diff = row.get("diff", "")
             
             diff_str = str(diff).strip() if diff is not None else ""
             if not diff_str or diff_str.lower() in ("nan", "none"):
-                LOGGER.debug(f"Skipping empty/null diff for file: {file_path}")
+                LOGGER.debug(f"Skipping empty/null diff for file index {idx}")
                 continue
+            
+            # Extract file path from diff header (e.g. "--- a/path/to/file.py")
+            file_path = f"unknown_{idx}"
+            for line in diff_str.splitlines():
+                if line.startswith("--- a/"):
+                    file_path = line[6:]
+                    break
+                if line.startswith("+++ b/"):
+                    file_path = line[6:]
+                    break
             
             try:
                 LOGGER.debug(f"Summarizing file: {file_path}")
@@ -202,26 +211,19 @@ class CommitSummarizer:
         
         return file_summaries
     
-    def synthesize_commit_summary(self, commit_message: str, file_summaries: List[Dict[str, str]]) -> str:
-        """Synthesize file summaries into a commit-level summary.
+    def _invoke_synthesis(self, commit_message: str, formatted_summaries: str) -> str:
+        """Invoke the synthesis LLM and parse the JSON response.
         
         Args:
             commit_message: Original commit message
-            file_summaries: List of file summaries
+            formatted_summaries: Pre-formatted file summaries string
         
         Returns:
-            Final commit-level semantic summary
+            Semantic summary string
         
         Raises:
             Exception: If API call fails after retries
         """
-        if not file_summaries:
-            return "No file changes to summarize."
-        
-        formatted_summaries = "\n".join(
-            f"- {fs['file']}: {fs['summary']}" for fs in file_summaries
-        )
-        
         prompt = self.config.commit_synthesis_prompt_template.format(
             commit_message=commit_message,
             file_summaries=formatted_summaries
@@ -244,6 +246,71 @@ class CommitSummarizer:
         
         LOGGER.error(f"Synthesis LLM call failed after {self.config.max_retries} attempts")
         raise Exception(f"Synthesis LLM call failed after {self.config.max_retries} attempts") from last_error
+
+    def synthesize_commit_summary(self, commit_message: str, file_summaries: List[Dict[str, str]]) -> str:
+        """Synthesize file summaries into a commit-level summary.
+        
+        When the combined file summaries exceed MAX_SYNTHESIS_LENGTH, splits them
+        into chunks, summarizes each chunk, then synthesizes the chunk summaries.
+        
+        Args:
+            commit_message: Original commit message
+            file_summaries: List of file summaries
+        
+        Returns:
+            Final commit-level semantic summary
+        
+        Raises:
+            Exception: If API call fails after retries
+        """
+        if not file_summaries:
+            return "No file changes to summarize."
+        
+        formatted_lines = [
+            f"- {fs['file']}: {fs['summary']}" for fs in file_summaries
+        ]
+        return self.synthesize_summary_chunking(commit_message, formatted_lines)
+
+    def synthesize_summary_chunking(self, commit_message: str, formatted_lines: list[str]) -> str:
+        
+        max_len = self.config.max_synthesis_length
+        summary = "\n".join(formatted_lines)
+
+        if len(summary) <= max_len:
+            return self._invoke_synthesis(commit_message, summary)
+        
+        # Split into chunks that fit within max_len
+        LOGGER.info(
+            f"File summaries too large ({len(summary)} chars), "
+            f"chunking at {max_len} chars"
+        )
+        chunks = []
+        current_chunk = []
+        current_len = 0
+        for line in formatted_lines:
+            line_len = len(line) + 1  # +1 for newline
+            if current_len + line_len > max_len:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+                current_len = 0
+            current_chunk.append(line)
+            current_len += line_len
+
+        if len(current_chunk) > 0:
+            chunks.append("\n".join(current_chunk))
+        
+        LOGGER.info(f"Split into {len(chunks)} chunks for hierarchical synthesis")
+        
+        # Summarize each chunk
+        chunk_summaries = []
+        for i, chunk in enumerate(chunks, 1):
+            LOGGER.debug(f"Synthesizing chunk {i}/{len(chunks)} ({len(chunk)} chars)")
+            summary = self._invoke_synthesis(commit_message, chunk)
+            chunk_summaries.append(summary)
+        
+        # Final synthesis from chunk summaries
+        LOGGER.debug(f"Final synthesis from {len(chunk_summaries)} chunk summaries")
+        return self.synthesize_summary_chunking(commit_message, chunk_summaries)
     
     def process_commits(
         self,

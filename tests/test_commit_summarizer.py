@@ -99,6 +99,7 @@ class TestCommitSummarizer:
         config.lmstudio_api_key = "not-needed"
         config.max_retries = 3
         config.max_file_diff_length = 8000
+        config.max_synthesis_length = 10000
         config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
         config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
         return config
@@ -131,7 +132,7 @@ class TestCommitSummarizer:
     def test_summarize_file_diff_success(self, summarizer):
         """Test successful file diff summarization."""
         mock_response = Mock()
-        mock_response.file_summary = "Updated parser logic"
+        mock_response.content = json.dumps({"file_summary": "Updated parser logic"})
         summarizer.file_client.invoke.return_value = mock_response
         
         result = summarizer.summarize_file_diff("parser.py", "diff content here")
@@ -142,7 +143,7 @@ class TestCommitSummarizer:
     def test_summarize_file_diff_retry(self, summarizer):
         """Test file diff summarization retry on failure."""
         mock_response = Mock()
-        mock_response.file_summary = "Updated parser logic"
+        mock_response.content = json.dumps({"file_summary": "Updated parser logic"})
         
         summarizer.file_client.invoke.side_effect = [
             Exception("API error"),
@@ -164,7 +165,7 @@ class TestCommitSummarizer:
     def test_synthesize_commit_summary_success(self, summarizer):
         """Test successful commit synthesis."""
         mock_response = Mock()
-        mock_response.semantic_summary = "Fixed critical parser bug"
+        mock_response.content = json.dumps({"semantic_summary": "Fixed critical parser bug"})
         summarizer.commit_client.invoke.return_value = mock_response
         
         file_summaries = [
@@ -181,6 +182,27 @@ class TestCommitSummarizer:
         result = summarizer.synthesize_commit_summary("Empty commit", [])
         assert result == "No file changes to summarize."
     
+    def test_synthesize_commit_summary_chunking(self, summarizer):
+        """Test chunked synthesis when file summaries exceed max_synthesis_length."""
+        # Set a small max so chunking is triggered
+        summarizer.config.max_synthesis_length = 200
+        
+        # Create enough file summaries to exceed the limit
+        file_summaries = [
+            {"file": f"src/module_{i}.py", "summary": f"Refactored module {i} to use new API pattern and updated all callers"}
+            for i in range(20)
+        ]
+        
+        mock_response = Mock()
+        mock_response.content = json.dumps({"semantic_summary": "Combined summary"})
+        summarizer.commit_client.invoke.return_value = mock_response
+        
+        result = summarizer.synthesize_commit_summary("Large refactor", file_summaries)
+        
+        assert result == "Combined summary"
+        # Must have been called more than once (chunks + recursive synthesis)
+        assert summarizer.commit_client.invoke.call_count > 1
+    
     @patch("app.summarize.commit_summarizer.CheckpointManager")
     def test_process_commits_no_checkpoint(self, mock_checkpoint_class, summarizer):
         """Test processing commits from scratch."""
@@ -190,11 +212,11 @@ class TestCommitSummarizer:
         
         # Mock file-level and commit-level LLM responses
         mock_file_response = Mock()
-        mock_file_response.file_summary = "File change summary"
+        mock_file_response.content = json.dumps({"file_summary": "File change summary"})
         summarizer.file_client.invoke.return_value = mock_file_response
         
         mock_commit_response = Mock()
-        mock_commit_response.semantic_summary = "Summary for commit"
+        mock_commit_response.content = json.dumps({"semantic_summary": "Summary for commit"})
         summarizer.commit_client.invoke.return_value = mock_commit_response
         
         df = pd.DataFrame({
@@ -222,11 +244,11 @@ class TestCommitSummarizer:
         
         # Mock LLM responses for the unprocessed commit
         mock_file_response = Mock()
-        mock_file_response.file_summary = "New file summary"
+        mock_file_response.content = json.dumps({"file_summary": "New file summary"})
         summarizer.file_client.invoke.return_value = mock_file_response
         
         mock_commit_response = Mock()
-        mock_commit_response.semantic_summary = "New commit summary"
+        mock_commit_response.content = json.dumps({"semantic_summary": "New commit summary"})
         summarizer.commit_client.invoke.return_value = mock_commit_response
         
         df = pd.DataFrame({
@@ -305,19 +327,17 @@ class TestSummarizeCommitsIntegration:
         
         # File-level summaries (2 files for abc123, 1 file for def456)
         mock_file_response = Mock()
-        mock_file_response.file_summary = "File change description"
+        mock_file_response.content = json.dumps({"file_summary": "File change description"})
         mock_file_client.invoke.return_value = mock_file_response
         
         # Commit-level synthesis
         mock_commit_response1 = Mock()
-        mock_commit_response1.semantic_summary = "Fixed critical bug in parser"
+        mock_commit_response1.content = json.dumps({"semantic_summary": "Fixed critical bug in parser"})
         mock_commit_response2 = Mock()
-        mock_commit_response2.semantic_summary = "Implemented new feature"
+        mock_commit_response2.content = json.dumps({"semantic_summary": "Implemented new feature"})
         mock_commit_client.invoke.side_effect = [mock_commit_response1, mock_commit_response2]
 
         mock_instance = Mock()
-        # with_structured_output is called twice: once for commit_client, once for file_client
-        mock_instance.with_structured_output.side_effect = [mock_commit_client, mock_file_client]
         mock_openai_class.return_value = mock_instance
 
         with TemporaryDirectory() as tmpdir:
@@ -327,6 +347,7 @@ class TestSummarizeCommitsIntegration:
             config.lmstudio_api_key = "not-needed"
             config.max_retries = 3
             config.max_file_diff_length = 8000
+            config.max_synthesis_length = 10000
             config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
             config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
             config.get_checkpoint_file = Mock(
@@ -334,6 +355,8 @@ class TestSummarizeCommitsIntegration:
             )
 
             summarizer = CommitSummarizer(config)
+            summarizer.file_client = mock_file_client
+            summarizer.commit_client = mock_commit_client
             result_df, checkpoint = summarizer.process_commits(sample_df, "test123")
 
             # Verify results

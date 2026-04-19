@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/python:3.14
+FROM mcr.microsoft.com/devcontainers/python:3.13
 WORKDIR /home/vscode/workspace
 RUN pip install poetry
 

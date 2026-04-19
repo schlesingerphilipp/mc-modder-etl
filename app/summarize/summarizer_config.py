@@ -45,6 +45,9 @@ class SummarizerConfig:
         # Maximum diff length per file (in characters)
         self.max_file_diff_length = int(os.getenv("MAX_FILE_DIFF_LENGTH", "8000"))
         
+        # Maximum length of formatted file summaries before chunking (in characters)
+        self.max_synthesis_length = int(os.getenv("MAX_SYNTHESIS_LENGTH", "10000"))
+        
         # File summary prompt template
         file_prompt_path = Path(__file__).parent / "FILE_SUMMARY_PROMPT.md"
         if not file_prompt_path.exists():
