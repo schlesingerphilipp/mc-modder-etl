@@ -1,7 +1,6 @@
 """Configuration for the commit summarizer."""
 
 import os
-import hashlib
 from dotenv import load_dotenv
 from pathlib import Path
 from app.utils.logging import LOGGER
@@ -12,20 +11,11 @@ load_dotenv()
 class SummarizerConfig:
     """Configuration for commit summarization."""
     
-    def __init__(self, checkpoint_dir: Path = None):
+    def __init__(self):
         """Initialize configuration from environment variables."""
         self.lmstudio_model = os.getenv("LMSTUDIO_MODEL", "gpt-oss-20b")
         self.lmstudio_base_url = os.getenv("LMSTUDIO_BASE_URL", "http://host.docker.internal:1234/v1")
         self.lmstudio_api_key = os.getenv("LMSTUDIO_API_KEY", "not-needed")
-        # Checkpoint configuration
-        if checkpoint_dir is not None:
-            LOGGER.info(f"Using checkpoint directory from argument: {checkpoint_dir}")
-            self.checkpoint_dir = Path(checkpoint_dir)
-        else:
-            LOGGER.info("Using checkpoint directory from environment variable or default")
-            checkpoint_dir = os.getenv("CHECKPOINT_DIR", "./checkpoints/summarize")
-            self.checkpoint_dir = Path(checkpoint_dir)
-        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
         # Semantic prompt template
         # read from app/summarize/PROMT.md
@@ -46,7 +36,7 @@ class SummarizerConfig:
         self.max_file_diff_length = int(os.getenv("MAX_FILE_DIFF_LENGTH", "8000"))
         
         # Maximum length of formatted file summaries before chunking (in characters)
-        self.max_synthesis_length = int(os.getenv("MAX_SYNTHESIS_LENGTH", "10000"))
+        self.max_synthesis_length = int(os.getenv("MAX_SYNTHESIS_LENGTH", "8000"))
         
         # File summary prompt template
         file_prompt_path = Path(__file__).parent / "FILE_SUMMARY_PROMPT.md"
@@ -61,21 +51,3 @@ class SummarizerConfig:
             raise FileNotFoundError(f"Commit synthesis prompt not found: {synthesis_prompt_path}")
         with open(synthesis_prompt_path, "r") as f:
             self.commit_synthesis_prompt_template = f.read()
-    
-    def get_checkpoint_file(self, csv_hash: str, output_path: Path = None) -> Path:
-        """Get the checkpoint file path for a specific CSV file and output target.
-        
-        Args:
-            csv_hash: Hash of the CSV file to create unique checkpoints
-            output_path: Optional output CSV path to differentiate checkpoints
-        
-        Returns:
-            Path to the checkpoint file
-        """
-        LOGGER.info(f"Checkpoint directory: {self.checkpoint_dir}")
-        
-        if output_path:
-            output_hash = hashlib.md5(str(output_path).encode()).hexdigest()[:8]
-            return self.checkpoint_dir / f"checkpoint_{csv_hash}_{output_hash}.json"
-        
-        return self.checkpoint_dir / f"checkpoint_{csv_hash}.json"

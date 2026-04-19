@@ -1,18 +1,15 @@
-"""Commit summarizer using Google Gemini API with checkpoint-based resumption."""
+"""Commit summarizer using LLM API with incremental parquet output."""
 
 import json
-import hashlib
-import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict
+from urllib.parse import quote
 from pydantic import BaseModel
 import pandas as pd
 from langchain_openai import ChatOpenAI
 
 from app.summarize.summarizer_config import SummarizerConfig
-from app.git_data.models import CommitSummary
 
 from app.utils.logging import LOGGER
 
@@ -24,56 +21,6 @@ class CommitSummaryResult(BaseModel):
 class FileSummaryResult(BaseModel):
     """The summary of a single file diff"""
     file_summary: str
-
-@dataclass
-class CheckpointData:
-    """Data structure for checkpoint persistence."""
-    processed_commits: Dict[str, str]  # commit_hash -> semantic_summary
-    failed_commits: Dict[str, str]  # commit_hash -> error_message
-    total_commits: int
-
-
-class CheckpointManager:
-    """Manages checkpoint saving and loading for resumable processing."""
-    
-    def __init__(self, checkpoint_path: Path):
-        """Initialize checkpoint manager.
-        
-        Args:
-            checkpoint_path: Path to store checkpoint file
-        """
-        self.checkpoint_path = checkpoint_path
-    
-    def load(self) -> Optional[CheckpointData]:
-        """Load checkpoint if it exists.
-        
-        Returns:
-            CheckpointData if checkpoint exists, None otherwise
-        """
-        if not self.checkpoint_path.exists():
-            return None
-        
-        try:
-            with open(self.checkpoint_path, "r") as f:
-                data = json.load(f)
-            return CheckpointData(**data)
-        except Exception as e:
-            LOGGER.warning(f"Failed to load checkpoint: {e}")
-            return None
-    
-    def save(self, checkpoint: CheckpointData) -> None:
-        """Save checkpoint.
-        
-        Args:
-            checkpoint: CheckpointData to save
-        """
-        try:
-            with open(self.checkpoint_path, "w") as f:
-                json.dump(asdict(checkpoint), f, indent=2)
-            LOGGER.info(f"Checkpoint saved: {self.checkpoint_path}")
-        except Exception as e:
-            LOGGER.error(f"Failed to save checkpoint: {e}")
-            raise
 
 
 class CommitSummarizer:
@@ -165,17 +112,54 @@ class CommitSummarizer:
         LOGGER.error(f"File summary LLM call failed after {self.config.max_retries} attempts")
         raise Exception(f"File summary LLM call failed after {self.config.max_retries} attempts") from last_error
     
-    def summarize_commit_files(self, commit_message: str, group: pd.DataFrame) -> List[Dict[str, str]]:
-        """Summarize all files in a commit.
+    def _file_checkpoint_path(self, output_dir: Path, repo_id: str, commit_hash: str) -> Path:
+        """Get the path for a commit's file-summary checkpoint."""
+        encoded_repo = quote(repo_id, safe="")
+        checkpoint_dir = output_dir / f"Repo ID={encoded_repo}" / f"commit hash={commit_hash}"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        return checkpoint_dir / "_file_summaries.json"
+
+    def _load_file_checkpoint(self, checkpoint_path: Path) -> List[Dict[str, str]]:
+        """Load previously checkpointed file summaries."""
+        if not checkpoint_path.exists():
+            return []
+        try:
+            with open(checkpoint_path, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            LOGGER.warning(f"Failed to load file checkpoint: {e}")
+            return []
+
+    def _save_file_checkpoint(self, checkpoint_path: Path, file_summaries: List[Dict[str, str]]) -> None:
+        """Save file summaries checkpoint."""
+        with open(checkpoint_path, "w") as f:
+            json.dump(file_summaries, f, indent=2)
+
+    def _delete_file_checkpoint(self, checkpoint_path: Path) -> None:
+        """Remove the file-summary checkpoint after commit is fully written."""
+        try:
+            checkpoint_path.unlink(missing_ok=True)
+        except Exception as e:
+            LOGGER.warning(f"Failed to delete file checkpoint: {e}")
+
+    def summarize_commit_files(
+        self, group: pd.DataFrame,
+        checkpoint_path: Path = None,
+    ) -> List[Dict[str, str]]:
+        """Summarize all files in a commit, with optional per-file checkpointing.
         
         Args:
-            commit_message: Original commit message
             group: DataFrame group for a single commit
+            checkpoint_path: Optional path to checkpoint file summaries
         
         Returns:
             List of dicts with file_path and summary
         """
-        file_summaries = []
+        # Load any previously checkpointed file summaries
+        file_summaries = self._load_file_checkpoint(checkpoint_path) if checkpoint_path else []
+        done_files = {fs["file"] for fs in file_summaries}
+        if done_files:
+            LOGGER.info(f"Resuming file summaries: {len(done_files)} already done")
         
         for idx, row in group.iterrows():
             diff = row.get("diff", "")
@@ -195,6 +179,10 @@ class CommitSummarizer:
                     file_path = line[6:]
                     break
             
+            if file_path in done_files:
+                LOGGER.debug(f"Skipping already summarized file: {file_path}")
+                continue
+            
             try:
                 LOGGER.debug(f"Summarizing file: {file_path}")
                 summary = self.summarize_file_diff(file_path, diff_str)
@@ -208,6 +196,10 @@ class CommitSummarizer:
                     "file": file_path,
                     "summary": "[Failed to summarize]"
                 })
+            
+            # Checkpoint after each file
+            if checkpoint_path:
+                self._save_file_checkpoint(checkpoint_path, file_summaries)
         
         return file_summaries
     
@@ -312,136 +304,102 @@ class CommitSummarizer:
         LOGGER.debug(f"Final synthesis from {len(chunk_summaries)} chunk summaries")
         return self.synthesize_summary_chunking(commit_message, chunk_summaries)
     
+    def _commit_exists(self, output_dir: Path, repo_id: str, commit_hash: str) -> bool:
+        """Check if a summary already exists for this repo+commit in the output parquet.
+        
+        Args:
+            output_dir: Root output directory (partitioned parquet dataset)
+            repo_id: Repository identifier
+            commit_hash: Commit SHA hash
+        
+        Returns:
+            True if a parquet partition already exists for this commit
+        """
+        # pyarrow URL-encodes partition values (e.g. / becomes %2F)
+        encoded_repo = quote(repo_id, safe="")
+        partition_path = output_dir / f"Repo ID={encoded_repo}" / f"commit hash={commit_hash}"
+        return partition_path.exists() and any(partition_path.glob("*.parquet"))
+
+    def _write_commit_summary(
+        self, output_dir: Path, group: pd.DataFrame, summary: str
+    ) -> None:
+        """Write a single commit's summary to the partitioned parquet output.
+        
+        Args:
+            output_dir: Root output directory
+            group: DataFrame rows for this commit
+            summary: Generated semantic summary
+        """
+        commit_row = group.iloc[0].copy()
+        result = pd.DataFrame([{
+            "Repo ID": commit_row.get("Repo ID", ""),
+            "commit hash": commit_row["commit hash"],
+            "commit message": commit_row["commit message"],
+            "PR message": commit_row.get("PR message"),
+            "PR ID": commit_row.get("PR ID"),
+            "semantic_summary": summary,
+        }])
+        result.to_parquet(
+            output_dir,
+            engine="pyarrow",
+            partition_cols=["Repo ID", "commit hash"],
+            index=False,
+        )
+
     def process_commits(
         self,
         df: pd.DataFrame,
-        csv_hash: str,
-        output_path: Path = None
-    ) -> tuple[pd.DataFrame, CheckpointData]:
-        """Process commits and generate summaries with checkpoint support.
+        output_dir: Path,
+    ) -> Dict[str, int]:
+        """Process commits and write summaries incrementally to parquet.
+        
+        For each commit, checks if a parquet partition already exists.
+        If not, generates the summary and writes it immediately.
         
         Args:
-            df: DataFrame from ETL output CSV
-            csv_hash: Hash of CSV file for checkpoint tracking
-            output_path: Optional output CSV path to differentiate checkpoints
+            df: DataFrame from ETL parquet input
+            output_dir: Output directory for partitioned parquet (Repo ID / commit hash)
         
         Returns:
-            Tuple of (updated DataFrame with summaries, checkpoint data)
-        
-        Raises:
-            Exception: If processing fails (aborts on error for checkpoint-based recovery)
+            Dict with counts: processed, skipped, failed
         """
-        checkpoint_manager = CheckpointManager(self.config.get_checkpoint_file(csv_hash, output_path))
-        checkpoint = checkpoint_manager.load()
+        output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize checkpoint data
-        if checkpoint:
-            processed_commits = checkpoint.processed_commits
-            failed_commits = checkpoint.failed_commits
-            total_commits = checkpoint.total_commits
-            LOGGER.info(f"Resuming from checkpoint: {len(processed_commits)} processed, "
-                       f"{len(failed_commits)} failed")
-        else:
-            processed_commits = {}
-            failed_commits = {}
-            total_commits = df["commit hash"].nunique()
-
-        
-        # Group rows by commit
         commit_groups = self.group_rows_by_commit(df)
+        total_commits = len(commit_groups)
+        processed = 0
+        skipped = 0
+        failed = 0
         
-        # Process each commit
         for i, (commit_hash, group) in enumerate(commit_groups.items(), 1):
-            # Skip if already processed
-            if commit_hash in processed_commits:
-                LOGGER.debug(f"Skipping already processed commit: {commit_hash}")
+            repo_id = str(group.iloc[0].get("Repo ID", ""))
+            LOGGER.info(f"Processing commit {i}/{total_commits}: {commit_hash[:8]} in repo {repo_id}")
+            if self._commit_exists(output_dir, repo_id, commit_hash):
+                LOGGER.debug(f"Skipping already processed commit: {commit_hash[:8]}")
+                skipped += 1
                 continue
-            
-            if commit_hash in failed_commits:
-                LOGGER.info(f"Retrying previously failed commit: {commit_hash[:8]}")
-                del failed_commits[commit_hash]
             
             try:
                 LOGGER.info(f"Processing commit {i}/{total_commits}: {commit_hash[:8]}...")
                 
-                # Get commit message (same for all rows in group)
                 commit_message = group.iloc[0]["commit message"]
                 
-                # Summarize each file individually
-                file_summaries = self.summarize_commit_files(commit_message, group)
+                # File-level checkpointing
+                checkpoint_path = os.environ.get("CHECKPOINT_DIR", os.getcwd() + "./checkpoints") 
+                cp_path = self._file_checkpoint_path(output_dir, repo_id, commit_hash)
+                file_summaries = self.summarize_commit_files(group, checkpoint_path=cp_path)
                 
-                # Synthesize into final commit summary
                 summary = self.synthesize_commit_summary(commit_message, file_summaries)
-                LOGGER.debug(f"Generated summary {summary}")
+                LOGGER.debug(f"Generated summary: {summary[:200]}")
                 
-                # Save to checkpoint
-                processed_commits[commit_hash] = summary
-                checkpoint_data = CheckpointData(
-                    processed_commits=processed_commits,
-                    failed_commits=failed_commits,
-                    total_commits=total_commits
-                )
-                checkpoint_manager.save(checkpoint_data)
+                self._write_commit_summary(output_dir, group, summary)
+                self._delete_file_checkpoint(cp_path)
+                processed += 1
                 
                 LOGGER.info(f"✓ Summary generated for {commit_hash[:8]}")
                 
             except Exception as e:
                 LOGGER.error(f"✗ Failed to summarize {commit_hash[:8]}: {e}")
-                failed_commits[commit_hash] = str(e)
-                
-                # Save checkpoint before aborting
-                checkpoint_data = CheckpointData(
-                    processed_commits=processed_commits,
-                    failed_commits=failed_commits,
-                    total_commits=total_commits
-                )
-                checkpoint_manager.save(checkpoint_data)
-                
-                # Abort on error for checkpoint-based recovery
-                raise Exception(
-                    f"Processing failed at commit {commit_hash[:8]}. "
-                    f"Checkpoint saved. Run again to resume from this point."
-                ) from e
+                failed += 1
         
-        # Add summaries to dataframe
-        def get_summary(commit_hash: str) -> Optional[str]:
-            """Get summary for a commit hash."""
-            return processed_commits.get(commit_hash)
-        
-        df["semantic_summary"] = df["commit hash"].apply(get_summary)
-        
-        # Final checkpoint
-        final_checkpoint = CheckpointData(
-            processed_commits=processed_commits,
-            failed_commits=failed_commits,
-            total_commits=total_commits
-        )
-        checkpoint_manager.save(final_checkpoint)
-        
-        return df, final_checkpoint
-
-
-def compute_file_hash(file_path: Path) -> str:
-    """Compute hash of a file or directory for checkpoint tracking.
-    
-    For directories (e.g. partitioned parquet datasets), hashes all files
-    in sorted order to produce a deterministic result.
-    
-    Args:
-        file_path: Path to file or directory
-    
-    Returns:
-        First 16 characters of SHA256 hash
-    """
-    sha256 = hashlib.sha256()
-    if file_path.is_dir():
-        for child in sorted(file_path.rglob("*")):
-            if child.is_file():
-                with open(child, "rb") as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        sha256.update(chunk)
-    else:
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                sha256.update(chunk)
-    return sha256.hexdigest()[:16]
+        return {"processed": processed, "skipped": skipped, "failed": failed}

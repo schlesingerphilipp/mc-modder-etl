@@ -1,10 +1,10 @@
 """Standalone CLI entry point for commit summarization.
 
 Usage:
-    summarize-commits input_file output_file [--checkpoint-dir DIR]
+    summarize-commits input_dir output_dir
     
 Example:
-    summarize-commits commits_prs_output.parquet commits_with_summaries.parquet
+    summarize-commits /var/db/git_data /var/db/summaries
 """
 
 import argparse
@@ -15,7 +15,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.summarize.summarizer_config import SummarizerConfig
-from app.summarize.commit_summarizer import CommitSummarizer, compute_file_hash
+from app.summarize.commit_summarizer import CommitSummarizer
 from app.utils.logging import LOGGER
 
 def validate_input(file_path: Path) -> pd.DataFrame:
@@ -51,23 +51,21 @@ def main() -> int:
         Exit code (0 for success, 1 for failure)
     """
     parser = argparse.ArgumentParser(
-        description="Generate semantic summaries of commits using Google Gemini"
+        description="Generate semantic summaries of commits using LLM"
     )
     parser.add_argument(
         "input_file",
+        nargs="?",
+        default=Path("/var/db/git_data"),
         type=Path,
-        help="Path to input ETL Parquet file"
+        help="Path to input ETL Parquet file or directory (default: /var/db/git_data/)"
     )
     parser.add_argument(
-        "output_file",
+        "output_dir",
+        nargs="?",
+        default=Path("/var/db/summaries"),
         type=Path,
-        help="Path to output Parquet file with semantic summaries"
-    )
-    parser.add_argument(
-        "--checkpoint-dir",
-        type=Path,
-        default=Path(".checkpoints/summarize"),
-        help="Directory for checkpoint files (default: from .env or ./checkpoints/summarize)"
+        help="Path to output directory for partitioned Parquet (default: /var/db/summaries)"
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -87,33 +85,23 @@ def main() -> int:
         LOGGER.info(f"Loaded {len(df)} rows from {df['commit hash'].nunique()} commits")
         
         # Load configuration
-        LOGGER.info(f"Loading summarizer configuration... with checkpoint dir: {args.checkpoint_dir}")
-        config = SummarizerConfig(checkpoint_dir=args.checkpoint_dir)
-        LOGGER.info(f"Checkpoint directory: {config.checkpoint_dir}")
-        
-        # Compute file hash for checkpoint tracking
-        file_hash = compute_file_hash(args.input_file)
-        LOGGER.info(f"Input hash for checkpoint tracking: {file_hash}")
+        config = SummarizerConfig()
         
         # Initialize summarizer
         LOGGER.info("Initializing LLM client...")
         summarizer = CommitSummarizer(config)
         
-        # Process commits with checkpoints
-        LOGGER.info("Processing commits with checkpoint-based resumption...")
-        df_with_summaries, checkpoint = summarizer.process_commits(df, file_hash, args.output_file)
-        
-        # Save output
-        LOGGER.info(f"Writing output: {args.output_file}")
-        args.output_file.parent.mkdir(parents=True, exist_ok=True)
-        df_with_summaries.to_parquet(args.output_file, index=False)
+        # Process commits with incremental parquet output
+        LOGGER.info(f"Processing commits, output dir: {args.output_dir}")
+        counts = summarizer.process_commits(df, args.output_dir)
         
         # Log summary
         LOGGER.info("=" * 60)
         LOGGER.info(f"✓ Processing complete!")
-        LOGGER.info(f"  • Processed commits: {len(checkpoint.processed_commits)}")
-        LOGGER.info(f"  • Failed commits: {len(checkpoint.failed_commits)}")
-        LOGGER.info(f"  • Output file: {args.output_file}")
+        LOGGER.info(f"  • Processed: {counts['processed']}")
+        LOGGER.info(f"  • Skipped (already exist): {counts['skipped']}")
+        LOGGER.info(f"  • Failed: {counts['failed']}")
+        LOGGER.info(f"  • Output dir: {args.output_dir}")
         LOGGER.info("=" * 60)
         
         return 0
