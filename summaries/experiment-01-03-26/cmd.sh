@@ -1,1 +1,0 @@
-poetry run summarize-commits commits_prs_output_small.csv summaries/experiment-01-03-26/summaries_2.csv

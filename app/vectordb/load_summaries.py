@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 from typing import Literal
-
+import os
 import pandas as pd
 
 from app.utils.logging import LOGGER
@@ -160,7 +160,7 @@ def main() -> int:
         description="Load commit summaries into ChromaDB"
     )
     parser.add_argument(
-        "input_file", type=Path, help="Path to input parquet file with summaries"
+        "input_file", type=Path, help="Path to input parquet file with summaries", default=Path(f"{os.getenv('DB_PATH')}/summaries")
     )
     parser.add_argument(
         "--collection",

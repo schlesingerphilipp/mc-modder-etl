@@ -19,5 +19,6 @@
     }
   },
   "model": "lmstudio-community/gemma-4-E4B-it",
-  "small_model": "lmstudio/openai/qwen/qwen3.5-9b"
+  "small_model": "lmstudio/openai/qwen/qwen3.5-9b",
+  "instructions": ["/home/vscode/workspace/AGENTS.md"]
 }

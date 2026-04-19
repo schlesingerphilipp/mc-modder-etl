@@ -4,4 +4,4 @@ RUN pip install poetry
 
 # opencode
 RUN sudo apt update && sudo apt install nodejs npm -y
-RUN npm i -g opencode-ai
+RUN npm i -g opencode-ai@1.14.18
