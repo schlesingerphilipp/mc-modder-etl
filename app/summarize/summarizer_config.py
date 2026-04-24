@@ -38,6 +38,14 @@ class SummarizerConfig:
         # Maximum length of formatted file summaries before chunking (in characters)
         self.max_synthesis_length = int(os.getenv("MAX_SYNTHESIS_LENGTH", "6000"))
         
+        # Disable reasoning/thinking mode for models that support it (e.g. Qwen3)
+        # Injects /no_think into prompts to prevent the model from using internal CoT
+        self.disable_thinking = os.getenv("DISABLE_THINKING", "true").lower() in ("true", "1", "yes")
+        
+        # Maximum completion tokens for LLM responses
+        # Increase if model uses internal reasoning that consumes tokens
+        self.max_completion_tokens = int(os.getenv("MAX_COMPLETION_TOKENS", "8192"))
+        
         # File summary prompt template
         file_prompt_path = Path(__file__).parent / "FILE_SUMMARY_PROMPT.md"
         if not file_prompt_path.exists():

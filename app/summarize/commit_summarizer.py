@@ -119,15 +119,33 @@ class CommitSummarizer:
             model=config.lmstudio_model,
             base_url=config.lmstudio_base_url,
             api_key=config.lmstudio_api_key,
-            temperature=0
+            temperature=0,
+            max_tokens=config.max_completion_tokens,
+            extra_body={
+                "chat_template_kwargs": {"enable_thinking": False}
+            },
         )
         
         self.file_client = ChatOpenAI(
             model=config.lmstudio_model,
             base_url=config.lmstudio_base_url,
             api_key=config.lmstudio_api_key,
-            temperature=0
+            temperature=0,
+            max_tokens=config.max_completion_tokens,
+            extra_body={
+                "chat_template_kwargs": {"enable_thinking": False}
+            },
         )
+    
+    def _prepare_prompt(self, prompt: str) -> str:
+        """Prepare prompt for LLM, injecting /no_think if thinking is disabled.
+        
+        Qwen3 models require /no_think at the end of the user message
+        to disable internal chain-of-thought reasoning.
+        """
+        if self.config.disable_thinking:
+            return prompt + "\n/no_think"
+        return prompt
     
     def group_rows_by_commit(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """Group ETL rows by commit hash.
@@ -175,14 +193,19 @@ class CommitSummarizer:
                 diff=diff_for_prompt
             )
         
+        prompt = self._prepare_prompt(prompt)
+        
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
                 response = self.file_client.invoke(prompt)
-                content = response.content.strip()
+                content = (response.content or "").strip()
                 LOGGER.debug(f"File LLM response: {content[:200]}")
                 if not content:
-                    raise ValueError("LLM returned empty content")
+                    raise ValueError(
+                        f"LLM returned empty content for {file_path} "
+                        f"(prompt length: {len(prompt)} chars)"
+                    )
                 return _extract_json_value(content, "file_summary")
             except Exception as e:
                 last_error = e
@@ -300,15 +323,19 @@ class CommitSummarizer:
             commit_message=commit_message,
             file_summaries=formatted_summaries
         )
+        prompt = self._prepare_prompt(prompt)
         
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
                 response = self.commit_client.invoke(prompt)
-                content = response.content.strip()
+                content = (response.content or "").strip()
                 LOGGER.debug(f"Commit LLM response: {content[:200]}")
                 if not content:
-                    raise ValueError("LLM returned empty content")
+                    raise ValueError(
+                        f"LLM returned empty content in response: {response}"
+                        f"(prompt length: {len(prompt)} chars)"
+                    )
                 return _extract_json_value(content, "semantic_summary")
             except Exception as e:
                 last_error = e

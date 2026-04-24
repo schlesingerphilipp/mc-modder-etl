@@ -27,6 +27,8 @@ class TestCommitSummarizer:
         config.max_retries = 3
         config.max_file_diff_length = 8000
         config.max_synthesis_length = 10000
+        config.disable_thinking = False
+        config.max_completion_tokens = 8192
         config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
         config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
         return config
@@ -138,6 +140,8 @@ class TestProcessCommits:
         config.max_retries = 3
         config.max_file_diff_length = 8000
         config.max_synthesis_length = 10000
+        config.disable_thinking = False
+        config.max_completion_tokens = 8192
         config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
         config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
         return config
@@ -357,6 +361,8 @@ class TestSummarizeCommitsIntegration:
             config.max_retries = 3
             config.max_file_diff_length = 8000
             config.max_synthesis_length = 10000
+            config.disable_thinking = False
+            config.max_completion_tokens = 8192
             config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
             config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
 
@@ -427,6 +433,8 @@ class TestExtractJsonValue:
         config.lmstudio_api_key = "not-needed"
         config.max_retries = 3
         config.max_file_diff_length = 8000
+        config.disable_thinking = False
+        config.max_completion_tokens = 8192
         config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
 
         with patch("app.summarize.commit_summarizer.ChatOpenAI"):
@@ -449,6 +457,8 @@ class TestExtractJsonValue:
         config.lmstudio_api_key = "not-needed"
         config.max_retries = 3
         config.max_synthesis_length = 10000
+        config.disable_thinking = False
+        config.max_completion_tokens = 8192
         config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
 
         with patch("app.summarize.commit_summarizer.ChatOpenAI"):
