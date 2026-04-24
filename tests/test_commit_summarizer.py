@@ -9,6 +9,7 @@ from tempfile import TemporaryDirectory
 
 from app.summarize.commit_summarizer import (
     CommitSummarizer,
+    _extract_json_value,
 )
 from app.summarize.summarizer_config import SummarizerConfig
 
@@ -372,3 +373,98 @@ class TestSummarizeCommitsIntegration:
             result = pd.read_parquet(output_dir)
             assert len(result) == 2
             assert set(result["commit hash"]) == {"abc123", "def456"}
+
+
+class TestExtractJsonValue:
+    """Tests for _extract_json_value handling of malformed LLM responses."""
+
+    def test_valid_json(self):
+        content = '{"semantic_summary": "Fixed a bug"}'
+        assert _extract_json_value(content, "semantic_summary") == "Fixed a bug"
+
+    def test_truncated_json_missing_closing_brace(self):
+        content = '{"semantic_summary": "Fixed a bug"'
+        assert _extract_json_value(content, "semantic_summary") == "Fixed a bug"
+
+    def test_truncated_json_missing_closing_quote_and_brace(self):
+        content = '{"semantic_summary": "This commit addresses compatibility issues by switching the build dependency'
+        result = _extract_json_value(content, "semantic_summary")
+        assert "switching the build dependency" in result
+
+    def test_markdown_code_fence(self):
+        content = '```json\n{"file_summary": "Refactored module"}\n```'
+        assert _extract_json_value(content, "file_summary") == "Refactored module"
+
+    def test_markdown_code_fence_no_lang(self):
+        content = '```\n{"file_summary": "Refactored module"}\n```'
+        assert _extract_json_value(content, "file_summary") == "Refactored module"
+
+    def test_escaped_quotes_in_value(self):
+        content = r'{"semantic_summary": "Renamed \"old\" to \"new\""}'
+        result = _extract_json_value(content, "semantic_summary")
+        assert "old" in result and "new" in result
+
+    def test_missing_key_raises(self):
+        content = '{"wrong_key": "value"}'
+        with pytest.raises(ValueError, match="Could not extract key"):
+            _extract_json_value(content, "semantic_summary")
+
+    def test_empty_content_raises(self):
+        content = ""
+        with pytest.raises(ValueError, match="Could not extract key"):
+            _extract_json_value(content, "semantic_summary")
+
+    def test_truncated_mid_sentence_file_summary(self):
+        content = '{"file_summary": "Updated the parser to handle edge cases where the input is'
+        result = _extract_json_value(content, "file_summary")
+        assert "Updated the parser" in result
+
+    def test_summarize_file_diff_with_truncated_response(self):
+        """Integration: summarize_file_diff succeeds on first attempt with truncated JSON."""
+        config = Mock(spec=SummarizerConfig)
+        config.lmstudio_model = "gpt-oss-20b"
+        config.lmstudio_base_url = "http://host.docker.internal:1234/v1"
+        config.lmstudio_api_key = "not-needed"
+        config.max_retries = 3
+        config.max_file_diff_length = 8000
+        config.file_summary_prompt_template = "File: {file_path}\nDiff:\n{diff}"
+
+        with patch("app.summarize.commit_summarizer.ChatOpenAI"):
+            summarizer = CommitSummarizer(config)
+
+        mock_response = Mock()
+        mock_response.content = '{"file_summary": "Updated build config to use standard slashblade'
+        summarizer.file_client.invoke.return_value = mock_response
+
+        result = summarizer.summarize_file_diff("build.gradle", "some diff")
+        assert "Updated build config" in result
+        # Should succeed on first call, no retries needed
+        assert summarizer.file_client.invoke.call_count == 1
+
+    def test_synthesis_with_truncated_response(self):
+        """Integration: _invoke_synthesis succeeds on first attempt with truncated JSON."""
+        config = Mock(spec=SummarizerConfig)
+        config.lmstudio_model = "gpt-oss-20b"
+        config.lmstudio_base_url = "http://host.docker.internal:1234/v1"
+        config.lmstudio_api_key = "not-needed"
+        config.max_retries = 3
+        config.max_synthesis_length = 10000
+        config.commit_synthesis_prompt_template = "Commit: {commit_message}\nFiles:\n{file_summaries}"
+
+        with patch("app.summarize.commit_summarizer.ChatOpenAI"):
+            summarizer = CommitSummarizer(config)
+
+        mock_response = Mock()
+        mock_response.content = (
+            '{"semantic_summary": "This commit addresses compatibility issues by switching '
+            "the build dependency from the 'slashblade-resharped' variant to the standard "
+            "'slashblade' project and updating the corresp"
+        )
+        summarizer.commit_client.invoke.return_value = mock_response
+
+        result = summarizer.synthesize_commit_summary(
+            "Switch to standard slashblade",
+            [{"file": "build.gradle", "summary": "Changed dependency"}],
+        )
+        assert "compatibility issues" in result
+        assert summarizer.commit_client.invoke.call_count == 1
