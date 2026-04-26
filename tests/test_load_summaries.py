@@ -9,6 +9,11 @@ from tempfile import TemporaryDirectory
 from app.vectordb.load_summaries import prepare_documents, load_summaries
 
 
+def _fake_get_embeddings(texts, config):
+    """Return deterministic fake embeddings for testing."""
+    return [[0.1, 0.2, 0.3] for _ in texts]
+
+
 class TestPrepareDocuments:
     """Tests for document preparation and deduplication."""
 
@@ -100,8 +105,9 @@ class TestLoadSummaries:
             with pytest.raises(ValueError, match="semantic_summary"):
                 load_summaries(path)
 
+    @patch("app.vectordb.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
     @patch("app.vectordb.load_summaries.ChromaConfig")
-    def test_full_mode_drops_and_recreates(self, mock_config_class):
+    def test_full_mode_drops_and_recreates(self, mock_config_class, mock_embed):
         """Full mode should drop existing collection and recreate it."""
         mock_collection = Mock()
         mock_client = Mock()
@@ -143,8 +149,13 @@ class TestLoadSummaries:
         assert meta_by_id["abc123"]["pr_id"] == "1"
         assert "pr_message" not in meta_by_id["def456"]
 
+        embeddings = call_kwargs.kwargs.get("embeddings") or call_kwargs[1].get("embeddings")
+        assert len(embeddings) == 2
+        assert all(isinstance(e, list) for e in embeddings)
+
+    @patch("app.vectordb.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
     @patch("app.vectordb.load_summaries.ChromaConfig")
-    def test_incremental_mode_skips_existing(self, mock_config_class):
+    def test_incremental_mode_skips_existing(self, mock_config_class, mock_embed):
         """Incremental mode should skip documents already in collection."""
         mock_collection = Mock()
         # abc123 already exists, def456 does not
@@ -212,8 +223,9 @@ class TestLoadSummaries:
         assert count == 0
         mock_config_class.assert_not_called()
 
+    @patch("app.vectordb.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
     @patch("app.vectordb.load_summaries.ChromaConfig")
-    def test_batching(self, mock_config_class):
+    def test_batching(self, mock_config_class, mock_embed):
         """Should upsert in batches when doc count exceeds BATCH_SIZE."""
         mock_collection = Mock()
         mock_client = Mock()

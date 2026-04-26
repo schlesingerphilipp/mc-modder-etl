@@ -11,9 +11,10 @@ Example:
 import argparse
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import List, Literal
 import os
 import pandas as pd
+from openai import OpenAI
 
 from app.utils.logging import LOGGER
 from app.vectordb.chroma_config import ChromaConfig
@@ -82,7 +83,28 @@ def _build_metadata(row: pd.Series) -> dict:
     return meta
 
 
-def _upsert_batches(collection, docs: pd.DataFrame) -> int:
+def _get_embeddings(texts: List[str], config: ChromaConfig) -> List[List[float]]:
+    """Generate embeddings for a list of texts via OpenAI-compatible API.
+
+    Args:
+        texts: List of strings to embed.
+        config: ChromaConfig with embedding endpoint settings.
+
+    Returns:
+        List of embedding vectors (one per input text).
+    """
+    client = OpenAI(
+        base_url=config.embedding_base_url,
+        api_key=config.embedding_api_key,
+    )
+    response = client.embeddings.create(
+        model=config.embedding_model,
+        input=texts,
+    )
+    return [item.embedding for item in response.data]
+
+
+def _upsert_batches(collection, docs: pd.DataFrame, config: ChromaConfig) -> int:
     """Upsert all documents into a collection in batches.
 
     Returns:
@@ -95,8 +117,14 @@ def _upsert_batches(collection, docs: pd.DataFrame) -> int:
         ids = batch["commit hash"].tolist()
         documents = batch["semantic_summary"].tolist()
         metadatas = [_build_metadata(row) for _, row in batch.iterrows()]
+        embeddings = _get_embeddings(documents, config)
 
-        collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+        collection.upsert(
+            ids=ids,
+            documents=documents,
+            metadatas=metadatas,
+            embeddings=embeddings,
+        )
         total += len(ids)
         LOGGER.info(f"Upserted batch {start // BATCH_SIZE + 1} ({len(ids)} docs)")
 
@@ -147,7 +175,7 @@ def load_summaries(
                 LOGGER.info("All documents already exist in collection.")
                 return 0
 
-    total = _upsert_batches(collection, docs)
+    total = _upsert_batches(collection, docs, config)
     LOGGER.info(
         f"Loaded {total} documents into collection '{config.collection_name}' (mode={mode})"
     )
@@ -160,7 +188,7 @@ def main() -> int:
         description="Load commit summaries into ChromaDB"
     )
     parser.add_argument(
-        "input_file", type=Path, help="Path to input parquet file with summaries", default=Path(f"{os.getenv('DB_PATH')}/summaries")
+        "input_file", nargs="?", type=Path, help="Path to input parquet file with summaries", default=Path(f"{os.getenv('DB_PATH', '/var/db')}/summaries")
     )
     parser.add_argument(
         "--collection",
