@@ -30,13 +30,15 @@ class SummarizerConfig:
         self.timeout_seconds = int(os.getenv("TIMEOUT_SECONDS", "60"))
         
         # Maximum diff length for truncation (in characters)
-        self.max_diff_length = int(os.getenv("MAX_DIFF_LENGTH", "15000"))
+        self.max_diff_length = int(os.getenv("MAX_DIFF_LENGTH", "150000"))
         
         # Maximum diff length per file (in characters)
-        self.max_file_diff_length = int(os.getenv("MAX_FILE_DIFF_LENGTH", "6000"))
+        self.max_file_diff_length = int(
+            os.getenv("MAX_FILE_DIFF_LENGTH", "150000"))
         
         # Maximum length of formatted file summaries before chunking (in characters)
-        self.max_synthesis_length = int(os.getenv("MAX_SYNTHESIS_LENGTH", "6000"))
+        self.max_synthesis_length = int(
+            os.getenv("MAX_SYNTHESIS_LENGTH", "150000"))
         
         # Disable reasoning/thinking mode for models that support it (e.g. Qwen3)
         # Injects /no_think into prompts to prevent the model from using internal CoT
@@ -44,7 +46,7 @@ class SummarizerConfig:
         
         # Maximum completion tokens for LLM responses
         # Increase if model uses internal reasoning that consumes tokens
-        self.max_completion_tokens = int(os.getenv("MAX_COMPLETION_TOKENS", "8192"))
+        self.max_completion_tokens = int(os.getenv("MAX_COMPLETION_TOKENS", "120000"))
         
         # File summary prompt template
         file_prompt_path = Path(__file__).parent / "FILE_SUMMARY_PROMPT.md"

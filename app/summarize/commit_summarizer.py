@@ -199,8 +199,8 @@ class CommitSummarizer:
         for attempt in range(self.config.max_retries):
             try:
                 response = self.file_client.invoke(prompt)
+                LOGGER.debug(f"File LLM response: {response}")
                 content = (response.content or "").strip()
-                LOGGER.debug(f"File LLM response: {content[:200]}")
                 if not content:
                     raise ValueError(
                         f"LLM returned empty content for {file_path} "
@@ -329,8 +329,8 @@ class CommitSummarizer:
         for attempt in range(self.config.max_retries):
             try:
                 response = self.commit_client.invoke(prompt)
+                LOGGER.debug(f"Commit LLM response: {response}")
                 content = (response.content or "").strip()
-                LOGGER.debug(f"Commit LLM response: {content[:200]}")
                 if not content:
                     raise ValueError(
                         f"LLM returned empty content in response: {response}"
