@@ -1,6 +1,6 @@
 FROM mcr.microsoft.com/devcontainers/python:3.13
 WORKDIR /home/vscode/workspace
-RUN pip install poetry
+RUN pip install poetry graphifyy
 
 # opencode
 RUN sudo apt update && sudo apt install nodejs npm -y
