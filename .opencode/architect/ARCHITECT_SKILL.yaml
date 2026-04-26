@@ -1,0 +1,61 @@
+# Skill for opencode agents to invoke architecture review
+id: code-architect
+name: Code Architect
+description: "Reviews codebase and creates/maintains architecture documentation"
+purpose: |
+  Act as a system architect to:
+  - Review entire codebase for architectural understanding
+  - Create per-module architecture.md files in app/docs/
+  - Maintain comprehensive architecture-summary.md at .opencode/architect/
+  - Document data flows, patterns, and design decisions
+  - Help development assistants understand the system
+
+capabilities:
+  - Read all Python files under app/ directory
+  - Extract Pydantic models with schema documentation
+  - Map module dependencies and entry points
+  - Trace end-to-end data flows between modules
+  - Document external API integrations and required env vars
+  - Create ASCII architecture diagrams
+  - Identify design patterns (checkpoints, truncation, etc.)
+  - Update documentation when code changes
+
+output_files:
+  location: ".opencode/architect/architecture-summary.md"
+  module_location: "app/docs/<module>_architecture.md"
+
+diagram_style: "ASCII art for compatibility with CLI interfaces"
+
+data_flow_coverage:
+  extract: | 
+    Input → List of GitHub repos (configurable via env var)
+    Process → Clone repos, extract commits via GitPython, fetch PRs via GitHub API, parse repo IDs, match commits↔PRs, split diffs by file
+    
+  transform: |
+    Input → Extracted parquet files in partitioned format {repo_id}/{commit_hash}/
+    Process → Merge git data with PR metadata, apply field mapping for CSV output
+    Output → Parquet files ready for summarization
+   
+  summarize: |
+    Input → Parquet files from extract stage
+    Process → Per-file diff truncation (8000 chars), file-level LLM summary generation, commit-level hierarchical synthesis
+    Output → Enriched CSV with space-separated column names, checkpoint files for resume capability
+    
+  vectordb: |
+    Input → Summarized data and embeddings
+    Process → Load into ChromaDB collection
+    Output → Queryable vector database
+
+trigger_conditions:
+  - "User requests architecture review before making large refactoring changes"
+  - "Codebase has been significantly modified after documentation was created"
+  - "AI assistant needs to understand system architecture for new development tasks"
+  - "Documentation request for specific module architecture"
+  - "Onboarding new developer or AI agent to the codebase"
+
+recommended_sequence: |
+  1. Call code-architect skill first before making architectural changes
+  2. After making changes, re-invoke to update documentation  
+  3. When debugging issues across modules, review data flow diagrams in summary.md
+    
+invocation_command: "code-architect"
