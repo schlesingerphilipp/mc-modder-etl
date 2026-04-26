@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import quote
@@ -12,6 +13,86 @@ from langchain_openai import ChatOpenAI
 from app.summarize.summarizer_config import SummarizerConfig
 
 from app.utils.logging import LOGGER
+
+
+def _extract_json_value(content: str, key: str) -> str:
+    """Extract a string value from a JSON response, handling truncated or malformed output.
+
+    Tries in order:
+    1. Standard json.loads
+    2. Strip markdown code fences, then json.loads
+    3. Repair truncated JSON (close open strings/braces)
+    4. Regex extraction of the value
+
+    Args:
+        content: Raw LLM response text
+        key: The JSON key to extract (e.g. "semantic_summary")
+
+    Returns:
+        The extracted string value
+
+    Raises:
+        ValueError: If the key cannot be extracted by any method
+    """
+    # 1. Try standard parse
+    try:
+        parsed = json.loads(content)
+        return parsed[key]
+    except (json.JSONDecodeError, KeyError):
+        pass
+
+    # 2. Strip markdown code fences and retry
+    stripped = re.sub(r"^```(?:json)?\s*\n?", "", content.strip())
+    stripped = re.sub(r"\n?```\s*$", "", stripped).strip()
+    if stripped != content.strip():
+        try:
+            parsed = json.loads(stripped)
+            return parsed[key]
+        except (json.JSONDecodeError, KeyError):
+            pass
+        content_to_repair = stripped
+    else:
+        content_to_repair = content.strip()
+
+    # 3. Try to repair truncated JSON by closing open strings/braces
+    repaired = content_to_repair.rstrip()
+    if not repaired.endswith("}"):
+        # Close an open string value if needed
+        # Count unescaped quotes after the key's colon
+        quote_count = 0
+        in_escape = False
+        for ch in repaired:
+            if in_escape:
+                in_escape = False
+                continue
+            if ch == "\\":
+                in_escape = True
+                continue
+            if ch == '"':
+                quote_count += 1
+        if quote_count % 2 == 1:
+            repaired += '"'
+        if not repaired.endswith("}"):
+            repaired += "}"
+    try:
+        parsed = json.loads(repaired)
+        return parsed[key]
+    except (json.JSONDecodeError, KeyError):
+        pass
+
+    # 4. Regex fallback: extract value after the key
+    pattern = r'"' + re.escape(key) + r'"\s*:\s*"((?:[^"\\]|\\.)*)'
+    m = re.search(pattern, content, re.DOTALL)
+    if m:
+        value = m.group(1)
+        # Un-escape JSON string escapes
+        value = value.replace('\\"', '"').replace("\\n", "\n").replace("\\\\", "\\")
+        LOGGER.warning(
+            f"Recovered truncated JSON for key '{key}' via regex ({len(value)} chars)"
+        )
+        return value
+
+    raise ValueError(f"Could not extract key '{key}' from LLM response: {content[:200]}")
 
 class CommitSummaryResult(BaseModel):
     """The summary of a commit diff"""
@@ -38,15 +119,33 @@ class CommitSummarizer:
             model=config.lmstudio_model,
             base_url=config.lmstudio_base_url,
             api_key=config.lmstudio_api_key,
-            temperature=0
+            temperature=0,
+            max_tokens=config.max_completion_tokens,
+            extra_body={
+                "chat_template_kwargs": {"enable_thinking": False}
+            },
         )
         
         self.file_client = ChatOpenAI(
             model=config.lmstudio_model,
             base_url=config.lmstudio_base_url,
             api_key=config.lmstudio_api_key,
-            temperature=0
+            temperature=0,
+            max_tokens=config.max_completion_tokens,
+            extra_body={
+                "chat_template_kwargs": {"enable_thinking": False}
+            },
         )
+    
+    def _prepare_prompt(self, prompt: str) -> str:
+        """Prepare prompt for LLM, injecting /no_think if thinking is disabled.
+        
+        Qwen3 models require /no_think at the end of the user message
+        to disable internal chain-of-thought reasoning.
+        """
+        if self.config.disable_thinking:
+            return prompt + "\n/no_think"
+        return prompt
     
     def group_rows_by_commit(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """Group ETL rows by commit hash.
@@ -94,16 +193,20 @@ class CommitSummarizer:
                 diff=diff_for_prompt
             )
         
+        prompt = self._prepare_prompt(prompt)
+        
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
                 response = self.file_client.invoke(prompt)
-                content = response.content.strip()
+                content = (response.content or "").strip()
                 LOGGER.debug(f"File LLM response: {content[:200]}")
                 if not content:
-                    raise ValueError("LLM returned empty content")
-                parsed = json.loads(content)
-                return parsed["file_summary"]
+                    raise ValueError(
+                        f"LLM returned empty content for {file_path} "
+                        f"(prompt length: {len(prompt)} chars)"
+                    )
+                return _extract_json_value(content, "file_summary")
             except Exception as e:
                 last_error = e
                 if attempt < self.config.max_retries - 1:
@@ -220,17 +323,20 @@ class CommitSummarizer:
             commit_message=commit_message,
             file_summaries=formatted_summaries
         )
+        prompt = self._prepare_prompt(prompt)
         
         last_error = None
         for attempt in range(self.config.max_retries):
             try:
                 response = self.commit_client.invoke(prompt)
-                content = response.content.strip()
+                content = (response.content or "").strip()
                 LOGGER.debug(f"Commit LLM response: {content[:200]}")
                 if not content:
-                    raise ValueError("LLM returned empty content")
-                parsed = json.loads(content)
-                return parsed["semantic_summary"]
+                    raise ValueError(
+                        f"LLM returned empty content in response: {response}"
+                        f"(prompt length: {len(prompt)} chars)"
+                    )
+                return _extract_json_value(content, "semantic_summary")
             except Exception as e:
                 last_error = e
                 if attempt < self.config.max_retries - 1:
