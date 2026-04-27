@@ -86,3 +86,88 @@ ChromaDB can run embeddings server-side, but that requires the full `chromadb` p
 2. We reuse the same LM Studio instance used for summarization
 3. The embedding model is configurable without rebuilding the ChromaDB container
 4. We use `chromadb-client` (thin HTTP client) instead of the full `chromadb` package
+
+---
+
+## Clustering: Semantic Grouping of Commits
+
+### Overview
+
+The `cluster-summaries` command retrieves embedding vectors from ChromaDB and groups commits into semantically similar clusters. This enables discovering patterns like "all rendering fixes" or "build system changes" without manual labeling.
+
+### Data Flow
+
+```
+┌───────────┐     ┌──────────────────┐     ┌──────────────┐
+│ ChromaDB  │────▶│  cluster_summaries│────▶│  Parquet     │
+│ embeddings│     │                  │     │  clusters.pqt│
+└───────────┘     │ 1. Fetch vectors │     └──────────────┘
+                  │ 2. Sweep k (2..√n)│
+                  │ 3. Pick best k   │
+                  │ 4. Final KMeans  │
+                  │ 5. Write parquet │
+                  └──────────────────┘
+```
+
+### Algorithm: KMeans + Silhouette Score Sweep
+
+**Why KMeans + Silhouette?**
+
+| Approach | Pros | Cons | Decision |
+|----------|------|------|----------|
+| KMeans + Silhouette | Uses existing `scikit-learn`, deterministic, well-understood | Assumes spherical clusters | **Chosen** — embedding spaces are typically well-suited |
+| HDBSCAN | Auto-detects k, handles noise, non-spherical clusters | Requires new dependency, more parameters to tune | Rejected — avoids new dependency |
+| DBSCAN | Density-based, finds arbitrary shapes | Requires `eps` tuning which is hard to automate | Rejected — harder to get right automatically |
+| Elbow method | Visual/heuristic | Subjective, harder to automate than silhouette | Rejected — silhouette gives a single-metric answer |
+
+**How optimal k is found:**
+
+1. Sweep k from `min_k` (default 2) to `min(max_k, √n_samples, n_samples - 1)`
+2. For each k, fit `KMeans(n_clusters=k)` and compute `silhouette_score`
+3. The k with the **highest silhouette score** wins
+
+The `√n` cap prevents degenerate clusters where most clusters contain a single document. For 100 documents, max k = 10. For 400 documents, max k = 20.
+
+**Silhouette score** (range -1 to +1) measures both:
+- **Intra-cluster cohesion** — how close each point is to others in its cluster
+- **Inter-cluster separation** — how far each point is from the nearest other cluster
+
+### Output Schema
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `commit_hash` | string | Commit SHA (document ID from ChromaDB) |
+| `cluster_id` | int | Cluster label assigned by KMeans |
+| `semantic_summary` | string | The LLM-generated summary text |
+| `repo_id` | string | Repository identifier |
+| `commit_message` | string | Original git commit message |
+| `silhouette_sample_score` | float | Per-sample silhouette score |
+
+**Interpreting `silhouette_sample_score`:**
+- **Near +1** — well-matched to its cluster, far from neighboring clusters
+- **Near 0** — borderline, close to the decision boundary between clusters
+- **Negative** — possibly assigned to the wrong cluster
+
+### CLI Usage
+
+```bash
+# Default: cluster the 'commit_summaries' collection, write to /var/db/clusters.parquet
+poetry run cluster-summaries
+
+# Specify collection and output
+poetry run cluster-summaries --collection my_collection --output /tmp/clusters.parquet
+
+# Constrain cluster range
+poetry run cluster-summaries --min-k 3 --max-k 15
+
+# Verbose logging (shows silhouette score per k)
+poetry run cluster-summaries -v
+```
+
+### Modules
+
+| File | Purpose |
+|------|---------|
+| `cluster_summaries.py` | Fetch embeddings, find optimal k, cluster, write parquet |
+| `chroma_config.py` | Shared ChromaDB connection config |
+| `load_summaries.py` | Load summaries + embeddings into ChromaDB (upstream step) |
