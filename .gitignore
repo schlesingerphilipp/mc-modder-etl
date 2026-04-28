@@ -4,3 +4,4 @@ dist
 *.csv
 .env
 .checkpoints
+.DS_Store
