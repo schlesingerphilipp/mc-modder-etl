@@ -14,7 +14,7 @@ import os
 import math
 import argparse
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List
 
 import numpy as np
 import pandas as pd
@@ -22,9 +22,8 @@ from sklearn.cluster import KMeans
 
 from app.utils.logging import LOGGER
 from app.vectordb.chroma_config import ChromaConfig
-
+from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import PromptTemplate
 
 CATEGORY_DISCOVERY_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "CATEGORY_DISCOVERY_PROMPT.md")
 CATEGORY_DEDUPLICATION_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "CATEGORY_DEDUPLICATION_PROMPT.md")
@@ -32,6 +31,12 @@ CATEGORY_ASSIGNMENT_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "CATEG
 
 DB_PATH = os.getenv("DB_PATH", "/var/db/")
 
+
+class CategoryList(BaseModel):
+    categories: list[str]
+
+class CategoryAssignment(BaseModel):
+    category: str
 
 def fetch_embeddings(config: ChromaConfig):
     client = config.get_client()
@@ -59,57 +64,42 @@ def load_prompt(path: str) -> str:
         return f.read()
 
 
-def llm_chain(prompt_template: str):
+def get_llm(structured_output: type):
     llm = ChatOpenAI(temperature=0, model_name=os.getenv("LMSTUDIO_MODEL", "gpt-oss-20b"), openai_api_base=os.getenv("LMSTUDIO_BASE_URL", "http://host.docker.internal:1234/v1"), openai_api_key=os.getenv("LMSTUDIO_API_KEY", "not-needed"))
-    prompt = PromptTemplate.from_template(prompt_template)
-    return prompt | llm
+    return llm.with_structured_output(structured_output)
 
 
 def discover_categories(summaries: List[str], batch_labels: np.ndarray, summaries_per_batch: int) -> List[str]:
     prompt_text = load_prompt(CATEGORY_DISCOVERY_PROMPT_PATH)
-    chain = llm_chain(prompt_text)
+    llm = get_llm(CategoryList)
     categories = []
     for batch in np.unique(batch_labels):
         batch_summaries = [summaries[i] for i in range(len(summaries)) if batch_labels[i] == batch]
-        input_text = "\n".join([f"Summary {i+1}: {s}" for i, s in enumerate(batch_summaries)])
-        result = chain.invoke({"input": input_text})
+        input_text = prompt_text + "\n" + "\n".join([f"Summary {i+1}: {s}" for i, s in enumerate(batch_summaries)])
+        result: CategoryList = llm.invoke(input=input_text)
         LOGGER.info(f"Batch {batch} categories: {result}")
-        categories.extend([c.strip("- ") for c in str(result).strip().splitlines() if c.strip()])
+        categories.extend(result.categories)
     return categories
 
 
 def deduplicate_categories(categories: List[str]) -> List[str]:
     prompt_text = load_prompt(CATEGORY_DEDUPLICATION_PROMPT_PATH)
-    chain = llm_chain(prompt_text)
-    input_text = "\n".join([f"- {c}" for c in categories])
-    result = chain.invoke({"input": input_text})
+    llm = get_llm(CategoryList)
+    input_text = prompt_text + "\n" + "\n".join([f"- {c}" for c in categories])
+    result: CategoryList = llm.invoke(input=input_text)
     LOGGER.info(f"Deduplicated categories: {result}")
-    return [c.strip("- ") for c in str(result).strip().splitlines() if c.strip()]
+    return result.categories
 
 
 def assign_categories(summaries: List[str], categories: List[str], batch_labels: np.ndarray) -> List[str]:
     prompt_text = load_prompt(CATEGORY_ASSIGNMENT_PROMPT_PATH)
-    chain = llm_chain(prompt_text)
-    assignments = [None] * len(summaries)
-    for batch in np.unique(batch_labels):
-        batch_indices = [i for i in range(len(summaries)) if batch_labels[i] == batch]
-        batch_summaries = [summaries[i] for i in batch_indices]
+    llm = get_llm(CategoryAssignment)
+    assignments = []
+    for summary in summaries:
         categories_text = "\n".join([f"- {c}" for c in categories])
-        summaries_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(batch_summaries)])
-        input_text = f"Categories:\n{categories_text}\n\nSummaries:\n{summaries_text}"
-        result = chain.invoke({"input": input_text})
-        # Parse table output
-        for i, idx in enumerate(batch_indices):
-            # Try to extract the assigned category for each summary
-            line = [l for l in str(result).splitlines() if summaries[i] in l]
-            if line:
-                parts = line[0].split("|")
-                if len(parts) > 1:
-                    assignments[idx] = parts[-1].strip()
-                else:
-                    assignments[idx] = "Other"
-            else:
-                assignments[idx] = "Other"
+        input_text = f"{prompt_text}\nCategories:\n{categories_text}\n\nSummary:\n{summary}"
+        result: CategoryAssignment = llm.invoke(input=input_text)
+        assignments.append(result.category)
     return assignments
 
 
@@ -143,7 +133,6 @@ def main():
             "semantic_summary": summaries[i],
             "repo_id": meta.get("repo_id", ""),
             "commit_message": meta.get("commit_message", ""),
-            "embedding": embeddings[i].tolist(),
         })
     df = pd.DataFrame(rows)
 

@@ -6,18 +6,4 @@ You are an expert in information organization. Given a list of category names, y
 - Review the provided list of category names.
 - Merge categories that are duplicates or nearly identical.
 - Remove categories that are too similar or redundant.
-- Return only the final list of unique category names, one per line.
-
-## Example Input
-- Rendering Improvements
-- Bug Fixes
-- Feature Additions
-- Error Handling
-- Rendering Optimization
-- Bugfixes
-
-## Example Output
-- Rendering Improvements
-- Bug Fixes
-- Feature Additions
-- Error Handling
+- Return only the final list of unique category names.

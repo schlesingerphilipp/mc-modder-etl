@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from unittest.mock import patch
-from app.vectordb.categorize_commits import batch_summaries_kmeans, deduplicate_categories
+from app.vectordb.categorize_commits import batch_summaries_kmeans, deduplicate_categories, CategoryList
 import app.vectordb.categorize_commits as categorize_commits
 
 class TestBatchSummariesKMeans:
@@ -15,8 +15,11 @@ class TestBatchSummariesKMeans:
 
 class TestDeduplicateCategories:
     def test_deduplicate_simple(self):
-        with patch.object(categorize_commits, "llm_chain") as mock_chain:
-            mock_chain.return_value.run.return_value = "- A\n- B\n- C"
+        # Patch get_llm to return a dummy object with .invoke returning a CategoryList
+        class DummyLLM:
+            def invoke(self, input=None, **kwargs):
+                return CategoryList(categories=["A", "B", "C"])
+        with patch.object(categorize_commits, "get_llm", return_value=DummyLLM()):
             categories = ["A", "A", "B", "C", "B"]
             result = categorize_commits.deduplicate_categories(categories)
             assert set(result) == {"A", "B", "C"}
