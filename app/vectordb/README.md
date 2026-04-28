@@ -102,51 +102,46 @@ The `cluster-summaries` command retrieves embedding vectors from ChromaDB and gr
 │ ChromaDB  │────▶│  cluster_summaries│────▶│  Parquet     │
 │ embeddings│     │                  │     │  clusters.pqt│
 └───────────┘     │ 1. Fetch vectors │     └──────────────┘
-                  │ 2. Sweep k (2..√n)│
-                  │ 3. Pick best k   │
-                  │ 4. Final KMeans  │
+                  │ 2. HDBSCAN clustering │
                   │ 5. Write parquet │
                   └──────────────────┘
 ```
 
-### Algorithm: KMeans + Silhouette Score Sweep
 
-**Why KMeans + Silhouette?**
+### Algorithm: HDBSCAN Clustering
+
+**Why HDBSCAN?**
 
 | Approach | Pros | Cons | Decision |
 |----------|------|------|----------|
-| KMeans + Silhouette | Uses existing `scikit-learn`, deterministic, well-understood | Assumes spherical clusters | **Chosen** — embedding spaces are typically well-suited |
-| HDBSCAN | Auto-detects k, handles noise, non-spherical clusters | Requires new dependency, more parameters to tune | Rejected — avoids new dependency |
-| DBSCAN | Density-based, finds arbitrary shapes | Requires `eps` tuning which is hard to automate | Rejected — harder to get right automatically |
-| Elbow method | Visual/heuristic | Subjective, harder to automate than silhouette | Rejected — silhouette gives a single-metric answer |
+| HDBSCAN | Auto-detects number of clusters, handles noise, non-spherical clusters, robust to outliers | Requires new dependency, more parameters to tune | **Chosen** — better for real-world embedding spaces |
+| KMeans + Silhouette | Simple, deterministic, well-understood | Assumes spherical clusters, requires k search | Replaced |
+| DBSCAN | Density-based, finds arbitrary shapes | Requires `eps` tuning which is hard to automate | Not chosen |
+| Elbow method | Visual/heuristic | Subjective, harder to automate | Not chosen |
 
-**How optimal k is found:**
+**How clustering works:**
 
-1. Sweep k from `min_k` (default 2) to `min(max_k, √n_samples, n_samples - 1)`
-2. For each k, fit `KMeans(n_clusters=k)` and compute `silhouette_score`
-3. The k with the **highest silhouette score** wins
-
-The `√n` cap prevents degenerate clusters where most clusters contain a single document. For 100 documents, max k = 10. For 400 documents, max k = 20.
-
-**Silhouette score** (range -1 to +1) measures both:
-- **Intra-cluster cohesion** — how close each point is to others in its cluster
-- **Inter-cluster separation** — how far each point is from the nearest other cluster
+1. Run HDBSCAN on all embeddings (default `min_cluster_size=5`)
+2. HDBSCAN automatically determines the number of clusters and labels noise points as `-1`
+3. For each cluster, compute centroid and per-point distance to centroid
+4. Output includes all points, with noise points marked as `cluster_id = -1`
 
 ### Output Schema
+
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `commit_hash` | string | Commit SHA (document ID from ChromaDB) |
-| `cluster_id` | int | Cluster label assigned by KMeans |
+| `cluster_id` | int | Cluster label assigned by HDBSCAN (`-1` = noise) |
 | `semantic_summary` | string | The LLM-generated summary text |
 | `repo_id` | string | Repository identifier |
 | `commit_message` | string | Original git commit message |
-| `silhouette_sample_score` | float | Per-sample silhouette score |
+| `embedding` | list[float] | Embedding vector |
+| `distance_to_centroid` | float | Euclidean distance to cluster centroid (NaN for noise) |
 
-**Interpreting `silhouette_sample_score`:**
-- **Near +1** — well-matched to its cluster, far from neighboring clusters
-- **Near 0** — borderline, close to the decision boundary between clusters
-- **Negative** — possibly assigned to the wrong cluster
+**Interpreting `cluster_id`:**
+- `>=0` — assigned to a cluster
+- `-1` — noise/outlier, not assigned to any cluster
 
 ### CLI Usage
 
@@ -157,11 +152,10 @@ poetry run cluster-summaries
 # Specify collection and output
 poetry run cluster-summaries --collection my_collection --output /tmp/clusters.parquet
 
-# Constrain cluster range
-poetry run cluster-summaries --min-k 3 --max-k 15
+# Set minimum cluster size (default 5)
+poetry run cluster-summaries --collection my_collection --output /tmp/clusters.parquet
 
-# Verbose logging (shows silhouette score per k)
-poetry run cluster-summaries -v
+# (min_cluster_size is currently set in code; CLI flag can be added if needed)
 ```
 
 ### Modules
