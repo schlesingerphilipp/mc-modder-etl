@@ -19,7 +19,7 @@ services:
       # LM Studio summarizer config
       - LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1
       - LMSTUDIO_API_KEY=not-needed
-      - LMSTUDIO_MODEL=gpt-oss-20b
+      - LMSTUDIO_MODEL=unsloth/Llama-3.1-8B-Instruct-GGUF
       - DISABLE_THINKING=true
       - MAX_COMPLETION_TOKENS=120000
       # Embedding config (uses LM Studio)
