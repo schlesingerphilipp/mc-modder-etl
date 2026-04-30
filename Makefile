@@ -1,5 +1,5 @@
 
-SERVICE_NAME = llm-explore
+SERVICE_NAME = app
 SERVICE_VERSION = 0.0.1
 
 ######################################

@@ -16,6 +16,8 @@ import argparse
 from pathlib import Path
 from typing import List
 
+import json
+
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
@@ -30,6 +32,33 @@ CATEGORY_DEDUPLICATION_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "CA
 CATEGORY_ASSIGNMENT_PROMPT_PATH = os.path.join(os.path.dirname(__file__), "CATEGORY_ASSIGNMENT_PROMPT.md")
 
 DB_PATH = os.getenv("DB_PATH", "/var/db/")
+
+def _checkpoint_dir(output_dir: Path) -> Path:
+    d = output_dir / "checkpoints"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def _load_checkpoint(path: Path):
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        LOGGER.warning(f"Failed to load checkpoint {path}: {e}")
+        return None
+
+def _save_checkpoint(path: Path, data):
+    tmp_path = path.with_suffix(".tmp")
+    with open(tmp_path, "w") as f:
+        json.dump(data, f, indent=2)
+    tmp_path.replace(path)
+
+def _delete_checkpoint(path: Path):
+    try:
+        path.unlink(missing_ok=True)
+    except Exception as e:
+        LOGGER.warning(f"Failed to delete checkpoint {path}: {e}")
 
 
 class CategoryList(BaseModel):
@@ -91,7 +120,7 @@ def deduplicate_categories(categories: List[str]) -> List[str]:
     return result.categories
 
 
-def assign_categories(summaries: List[str], categories: List[str], batch_labels: np.ndarray) -> List[str]:
+def assign_categories(summaries: List[str], categories: List[str]) -> List[str]:
     prompt_text = load_prompt(CATEGORY_ASSIGNMENT_PROMPT_PATH)
     llm = get_llm(CategoryAssignment)
     assignments = []
@@ -102,28 +131,18 @@ def assign_categories(summaries: List[str], categories: List[str], batch_labels:
         assignments.append(result.category)
     return assignments
 
+def boil_down_categories(df: pd.DataFrame) -> pd.DataFrame:
+    df["cat_count"] = df.groupby("category")["category"].transform("count")
+    category_counts = df.groupby("category").size().reset_index(name="count").sort_values("count", ascending=True)
+    threshold = 10
+    small_cats = category_counts[category_counts["count"] < threshold]["category"].tolist()
+    # replace category with "Other" if in small_cats
+    df["category"] = df["category"].apply(lambda x: x if x not in small_cats else "Other")
+    df = df.drop(columns=["cat_count"])
+    return df
+    
 
-def main():
-    parser = argparse.ArgumentParser(description="LLM-guided commit categorization pipeline")
-    parser.add_argument("--collection", type=str, required=True, help="ChromaDB collection name")
-    parser.add_argument("--output", type=Path, default=None, help="Output parquet file path (default: DB_PATH/categorizedsummaries/categorized.parquet)")
-    parser.add_argument("--summaries-per-batch", type=int, default=20, help="Number of summaries per LLM batch (default: 20)")
-    args = parser.parse_args()
-
-    config = ChromaConfig(collection_name=args.collection)
-    ids, embeddings, metadatas, documents = fetch_embeddings(config)
-    summaries = documents
-    batch_labels = batch_summaries_kmeans(embeddings, args.summaries_per_batch)
-
-    LOGGER.info(f"Discovering categories...")
-    categories = discover_categories(summaries, batch_labels, args.summaries_per_batch)
-    categories = deduplicate_categories(categories)
-    LOGGER.info(f"Final categories: {categories}")
-
-    LOGGER.info(f"Assigning categories to summaries...")
-    assignments = assign_categories(summaries, categories, batch_labels)
-
-    # Build DataFrame
+def build_df(ids, metadatas, summaries, assignments):
     rows = []
     for i, doc_id in enumerate(ids):
         meta = metadatas[i] if metadatas and i < len(metadatas) else {}
@@ -135,16 +154,80 @@ def main():
             "commit_message": meta.get("commit_message", ""),
         })
     df = pd.DataFrame(rows)
+    return df
 
-    # Write partitioned by category
+
+def main():
+
+    parser = argparse.ArgumentParser(description="LLM-guided commit categorization pipeline")
+    parser.add_argument("--collection", type=str, required=True, help="ChromaDB collection name")
+    parser.add_argument("--output", type=Path, default=None, help="Output parquet file path (default: DB_PATH/categorizedsummaries/categorized.parquet)")
+    parser.add_argument("--summaries-per-batch", type=int, default=20, help="Number of summaries per LLM batch (default: 20)")
+    parser.add_argument("--overwrite-checkpoints", action="store_true", help="Ignore and overwrite any existing checkpoints (default: resume if found)")
+    args = parser.parse_args()
+
+    config = ChromaConfig(collection_name=args.collection)
+    ids, embeddings, metadatas, documents = fetch_embeddings(config)
+    summaries = documents
+    batch_labels = batch_summaries_kmeans(embeddings, args.summaries_per_batch)
+
     output_dir = args.output or Path(DB_PATH) / "categorizedsummaries"
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = _checkpoint_dir(output_dir)
+
+    # Checkpoint paths
+    discovery_ckpt = checkpoint_dir / "categories_discovered.json"
+    dedup_ckpt = checkpoint_dir / "categories_deduped.json"
+    assign_ckpt = checkpoint_dir / "assignments.json"
+
+    # Optionally clear checkpoints
+    if args.overwrite_checkpoints:
+        for ckpt in [discovery_ckpt, dedup_ckpt, assign_ckpt]:
+            _delete_checkpoint(ckpt)
+
+    # Step 1: Discover categories
+    categories = _load_checkpoint(discovery_ckpt)
+    if categories is not None:
+        LOGGER.info(f"Loaded discovered categories from checkpoint: {discovery_ckpt}")
+    else:
+        LOGGER.info(f"Discovering categories...")
+        categories = discover_categories(summaries, batch_labels, args.summaries_per_batch)
+        _save_checkpoint(discovery_ckpt, categories)
+
+    # Step 2: Deduplicate categories
+    deduped_categories = _load_checkpoint(dedup_ckpt)
+    if deduped_categories is not None:
+        LOGGER.info(f"Loaded deduplicated categories from checkpoint: {dedup_ckpt}")
+    else:
+        LOGGER.info(f"Deduplicating categories...")
+        deduped_categories = deduplicate_categories(categories)
+        _save_checkpoint(dedup_ckpt, deduped_categories)
+
+    LOGGER.info(f"Final categories: {deduped_categories}")
+
+    # Step 3: Assign categories
+    assignments = _load_checkpoint(assign_ckpt)
+    if assignments is not None:
+        LOGGER.info(f"Loaded assignments from checkpoint: {assign_ckpt}")
+    else:
+        LOGGER.info(f"Assigning categories to summaries...")
+        assignments = assign_categories(summaries, deduped_categories)
+        _save_checkpoint(assign_ckpt, assignments)
+
+    # Build DataFrame
+    df = build_df(ids, metadatas, summaries, assignments)
+
+    df = boil_down_categories(df)
+
+    # Write partitioned by category
     for cat, group in df.groupby("category"):
         cat_dir = output_dir / cat.replace("/", "_")
         cat_dir.mkdir(parents=True, exist_ok=True)
         group.to_parquet(cat_dir / "categorized.parquet", index=False)
         LOGGER.info(f"Wrote {len(group)} rows to {cat_dir / 'categorized.parquet'}")
 
-if __name__ == "__main__":
-    main()
+    # Clean up checkpoints after successful run
+    for ckpt in [discovery_ckpt, dedup_ckpt, assign_ckpt]:
+        _delete_checkpoint(ckpt)
+
