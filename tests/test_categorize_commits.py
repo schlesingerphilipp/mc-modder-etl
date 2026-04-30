@@ -1,8 +1,8 @@
 import pytest
 import numpy as np
 from unittest.mock import patch
-from app.vectordb.categorize_commits import batch_summaries_kmeans, deduplicate_categories, CategoryList
-import app.vectordb.categorize_commits as categorize_commits
+from app.categorize.categorize_commits import batch_summaries_kmeans, deduplicate_categories, CategoryList
+import app.categorize.categorize_commits as categorize_commits
 
 class TestBatchSummariesKMeans:
     def test_batches_correct_number(self):

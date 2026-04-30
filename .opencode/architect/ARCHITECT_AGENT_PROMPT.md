@@ -179,7 +179,7 @@ export CHROMA_COLLECTION="commit_summaries"
 |---------|--------|---------|
 | `etl-pipeline` | git_data.etl_pipeline | Extract + transform to Parquet |
 | `summarize-commits` | summarize.summarize_commits | Generate LLM summaries |
-| `load-summaries` | vectordb.load_summaries | Load into ChromaDB |
+| `load-summaries` | categorize.load_summaries | Load into ChromaDB |
 | `run-notebook` | notebooks.run_notebook | Execute analysis notebooks |
 
 ## Design Patterns Documented

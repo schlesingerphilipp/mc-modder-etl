@@ -23,7 +23,7 @@ import pandas as pd
 import hdbscan
 
 from app.utils.logging import LOGGER
-from app.vectordb.chroma_config import ChromaConfig
+from app.categorize.chroma_config import ChromaConfig
 
 
 def fetch_embeddings(

@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch, MagicMock
 import pandas as pd
 from tempfile import TemporaryDirectory
 
-from app.vectordb.load_summaries import prepare_documents, load_summaries
+from app.categorize.load_summaries import prepare_documents, load_summaries
 
 
 def _fake_get_embeddings(texts, config):
@@ -105,8 +105,8 @@ class TestLoadSummaries:
             with pytest.raises(ValueError, match="semantic_summary"):
                 load_summaries(path)
 
-    @patch("app.vectordb.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
-    @patch("app.vectordb.load_summaries.ChromaConfig")
+    @patch("app.categorize.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
+    @patch("app.categorize.load_summaries.ChromaConfig")
     def test_full_mode_drops_and_recreates(self, mock_config_class, mock_embed):
         """Full mode should drop existing collection and recreate it."""
         mock_collection = Mock()
@@ -153,8 +153,8 @@ class TestLoadSummaries:
         assert len(embeddings) == 2
         assert all(isinstance(e, list) for e in embeddings)
 
-    @patch("app.vectordb.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
-    @patch("app.vectordb.load_summaries.ChromaConfig")
+    @patch("app.categorize.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
+    @patch("app.categorize.load_summaries.ChromaConfig")
     def test_incremental_mode_skips_existing(self, mock_config_class, mock_embed):
         """Incremental mode should skip documents already in collection."""
         mock_collection = Mock()
@@ -184,7 +184,7 @@ class TestLoadSummaries:
         ids = call_kwargs.kwargs.get("ids") or call_kwargs[1].get("ids")
         assert ids == ["def456"]
 
-    @patch("app.vectordb.load_summaries.ChromaConfig")
+    @patch("app.categorize.load_summaries.ChromaConfig")
     def test_incremental_mode_all_exist(self, mock_config_class):
         """Incremental mode should return 0 when all docs already exist."""
         mock_collection = Mock()
@@ -208,7 +208,7 @@ class TestLoadSummaries:
         assert count == 0
         mock_collection.upsert.assert_not_called()
 
-    @patch("app.vectordb.load_summaries.ChromaConfig")
+    @patch("app.categorize.load_summaries.ChromaConfig")
     def test_returns_zero_for_all_empty_summaries(self, mock_config_class):
         """Should return 0 and not call ChromaDB when no valid docs."""
         with TemporaryDirectory() as tmpdir:
@@ -223,8 +223,8 @@ class TestLoadSummaries:
         assert count == 0
         mock_config_class.assert_not_called()
 
-    @patch("app.vectordb.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
-    @patch("app.vectordb.load_summaries.ChromaConfig")
+    @patch("app.categorize.load_summaries._get_embeddings", side_effect=_fake_get_embeddings)
+    @patch("app.categorize.load_summaries.ChromaConfig")
     def test_batching(self, mock_config_class, mock_embed):
         """Should upsert in batches when doc count exceeds BATCH_SIZE."""
         mock_collection = Mock()

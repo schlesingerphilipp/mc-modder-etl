@@ -32,7 +32,7 @@ Three registered Poetry scripts:
 | `etl-pipeline` | `app.git_data.etl_pipeline` | Full extraction + transform pipeline |
 | `summarize-commits` | `app.summarize.summarize_commits` | LLM semantic summary generation |
 | `run-notebook` | `app.notebooks.run_notebook` | Programmatic notebook execution |
-| `load-summaries` | `app.vectordb.load_summaries` | Load summaries into vector database |
+| `load-summaries` | `app.categorize.load_summaries` | Load summaries into vector database |
 
 Run via `poetry run <command>` or activate the venv first.
 

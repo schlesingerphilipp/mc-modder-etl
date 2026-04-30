@@ -35,7 +35,7 @@ CLI entry point registered in project root's `pyproject.toml`:
 
 ```toml
 [tool.poetry.scripts]
-load-summaries = "app.vectordb.load_summaries:main"
+load-summaries = "app.categorize.load_summaries:main"
 ```
 
 **Usage:**

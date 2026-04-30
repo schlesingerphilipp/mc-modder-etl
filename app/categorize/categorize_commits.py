@@ -23,7 +23,7 @@ import pandas as pd
 from sklearn.cluster import KMeans
 
 from app.utils.logging import LOGGER
-from app.vectordb.chroma_config import ChromaConfig
+from app.categorize.chroma_config import ChromaConfig
 from pydantic import BaseModel
 from langchain_openai import ChatOpenAI
 

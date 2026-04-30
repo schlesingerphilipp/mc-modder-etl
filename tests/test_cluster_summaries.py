@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from tempfile import TemporaryDirectory
 
-from app.vectordb.cluster_summaries import (
+from app.categorize.cluster_summaries import (
     fetch_embeddings,
     cluster_embeddings_hdbscan,
     build_cluster_dataframe,
@@ -146,7 +146,7 @@ class TestBuildClusterDataframe:
 class TestClusterCollection:
     """Integration tests for the full cluster_collection workflow."""
 
-    @patch("app.vectordb.cluster_summaries.ChromaConfig")
+    @patch("app.categorize.cluster_summaries.ChromaConfig")
     def test_end_to_end(self, mock_config_class):
         rng = np.random.RandomState(42)
         # Create 3 clear clusters of 20 points each in 10 dims
@@ -205,7 +205,7 @@ class TestClusterCollection:
                 "distance_to_centroid",
             }
 
-    @patch("app.vectordb.cluster_summaries.ChromaConfig")
+    @patch("app.categorize.cluster_summaries.ChromaConfig")
     def test_no_output_path_skips_write(self, mock_config_class):
         rng = np.random.RandomState(42)
         embeddings = (rng.randn(3, 10) * 10).tolist()

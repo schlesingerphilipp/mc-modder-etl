@@ -17,7 +17,7 @@ import pandas as pd
 from openai import OpenAI
 
 from app.utils.logging import LOGGER
-from app.vectordb.chroma_config import ChromaConfig
+from app.categorize.chroma_config import ChromaConfig
 
 BATCH_SIZE = 100
 
